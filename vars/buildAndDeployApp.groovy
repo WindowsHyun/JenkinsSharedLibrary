@@ -16,7 +16,7 @@ def call(Map config) {
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
 
     def dockerImageName = "${config.dockerRegistry}/${config.appName}"
-    def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${config.appName}/kustomization.yaml"
+    def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${config.appName.toLowerCase()}/kustomization.yaml"
     def gitReferenceRepoName = config.repoUrl.split('/')[-1].replace('.git', '')
     def gitReferenceRepo = "/git-reference-repo/${gitReferenceRepoName}.git"
 
@@ -84,7 +84,7 @@ def call(Map config) {
                         sh 'pwd'
                         sh 'go version'
                         sh 'go mod download'
-                        sh "go build -v -o ${config.appName.capitalize()} ."
+                        sh "go build -v -o ${config.appName} ."
                     }
                 }
             }
