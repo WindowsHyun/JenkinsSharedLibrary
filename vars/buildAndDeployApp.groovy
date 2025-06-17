@@ -15,7 +15,7 @@ def call(Map config) {
     config.kubernetesServiceAccount = config.kubernetesServiceAccount ?: 'jenkins-admin'
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
 
-    def dockerImageName = "${config.dockerRegistry}/${config.appName}"
+    def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
     def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${config.appName.toLowerCase()}/kustomization.yaml"
     def gitReferenceRepoName = config.repoUrl.split('/')[-1].replace('.git', '')
     def gitReferenceRepo = "/git-reference-repo/${gitReferenceRepoName}.git"
