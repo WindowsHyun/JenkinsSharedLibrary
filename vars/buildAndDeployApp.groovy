@@ -1,11 +1,9 @@
 def call(Map config) {
-    // 필수 파라미터 유효성 검사
     if (!config.appName) error "appName 파라미터는 필수입니다."
     if (!config.repoUrl) error "repoUrl 파라미터는 필수입니다."
     if (!config.repoBranch) error "repoBranch 파라미터는 필수입니다."
     if (!config.buildType) error "buildType 파라미터는 필수입니다 (예: 'go', 'docker-only', 'npm')."
 
-    // 기본값 설정
     config.dockerRegistry = config.dockerRegistry ?: '192.168.0.201:5000'
     config.k8sConfigsRepoUrl = config.k8sConfigsRepoUrl ?: 'git@github.com:WindowsHyun/kubernetes-configs.git'
     config.k8sConfigsBranch = config.k8sConfigsBranch ?: 'develop'
@@ -33,11 +31,11 @@ def call(Map config) {
         }
 
         environment {
-            DOCKER_REGISTRY = config.dockerRegistry
-            DOCKER_IMAGE_NAME = dockerImageName
-            K8S_CONFIGS_REPO_URL = config.k8sConfigsRepoUrl
-            K8S_CONFIGS_BRANCH = config.k8sConfigsBranch
-            K8S_KUSTOMIZE_PATH = k8sKustomizePath
+            DOCKER_REGISTRY = "${config.dockerRegistry}"
+            DOCKER_IMAGE_NAME = "${dockerImageName}"
+            K8S_CONFIGS_REPO_URL = "${config.k8sConfigsRepoUrl}"
+            K8S_CONFIGS_BRANCH = "${config.k8sConfigsBranch}"
+            K8S_KUSTOMIZE_PATH = "${k8sKustomizePath}"
         }
 
         stages {
@@ -76,26 +74,30 @@ def call(Map config) {
                 }
             }
 
-            if (config.buildType == 'go') {
-                stage('Build Go Application') {
-                    steps {
-                        container('go') {
-                            echo "Go 애플리케이션 빌드 시작 (go 컨테이너)..."
-                            sh 'pwd'
-                            sh 'go version'
-                            sh 'go mod download'
-                            sh "go build -v -o ${config.appName.capitalize()} ."
-                        }
+            stage('Build Go Application') {
+                when {
+                    expression { return config.buildType == 'go' }
+                }
+                steps {
+                    container('go') {
+                        echo "Go 애플리케이션 빌드 시작 (go 컨테이너)..."
+                        sh 'pwd'
+                        sh 'go version'
+                        sh 'go mod download'
+                        sh "go build -v -o ${config.appName.capitalize()} ."
                     }
                 }
-            } else if (config.buildType == 'npm') {
-                stage('Build Node.js Application') {
-                    steps {
-                        container('node') {
-                            echo "Node.js 애플리케이션 빌드 시작 (node 컨테이너)..."
-                            sh 'npm install'
-                            sh 'npm run build'
-                        }
+            }
+
+            stage('Build Node.js Application') {
+                when {
+                    expression { return config.buildType == 'npm' }
+                }
+                steps {
+                    container('node') {
+                        echo "Node.js 애플리케이션 빌드 시작 (node 컨테이너)..."
+                        sh 'npm install'
+                        sh 'npm run build'
                     }
                 }
             }
@@ -152,6 +154,7 @@ def call(Map config) {
                             }
 
                             writeYaml file: kustomizationFile, data: kustomization, overwrite: true
+                            
                             sh '''
                                 mkdir -p ~/.ssh
                                 ssh-keyscan -H github.com >> ~/.ssh/known_hosts
