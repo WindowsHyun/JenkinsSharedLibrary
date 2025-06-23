@@ -153,6 +153,16 @@ def call(Map config) {
                                 error "Error: Image '${env.DOCKER_IMAGE_NAME}' not found in ${kustomizationFile}. Please ensure it exists in the 'images' list."
                             }
 
+                            def changeCauseMessage = "Git Hash: ${env.GIT_COMMIT_HASH}"
+                            kustomization.patches.each { patch ->
+                                patch.patch.each { op ->
+                                    if (op.op == 'add' && op.path == '/metadata/annotations/kubernetes.io~1change-cause') {
+                                        op.value = changeCauseMessage
+                                        echo "CHANGE-CAUSE annotation updated to: ${changeCauseMessage}"
+                                    }
+                                }
+                            }
+
                             writeYaml file: kustomizationFile, data: kustomization, overwrite: true
                             
                             sh '''
