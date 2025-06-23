@@ -180,6 +180,9 @@ def call(Map config) {
                             sh "git config user.name '${config.jenkinsUserName}'"
                             sshagent([config.credentialId]) {
                                 sh "git add ${kustomizationFile}"
+                                if (fileExists(patchFile)) {
+                                    sh "git add ${patchFile}"
+                                }
                                 try {
                                     sh "git commit -m \"Update: ${config.appName} image tag to ${env.GIT_COMMIT_HASH}\""
                                     sh "git push origin ${config.k8sConfigsBranch}"
