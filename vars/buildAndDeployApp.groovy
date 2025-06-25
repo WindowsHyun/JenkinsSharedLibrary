@@ -163,7 +163,7 @@ def call(Map config) {
 
                             if (fileExists(patchFile)) {
                                 def patchContent = readFile(patchFile)
-                                def maxMessageLength = 16
+                                def maxMessageLength = 60
                                 def commitMessageForCause = env.GIT_COMMIT_MESSAGE_RAW
                                 if (commitMessageForCause.length() > maxMessageLength) {
                                     commitMessageForCause = commitMessageForCause.substring(0, maxMessageLength - 3) + "..."
