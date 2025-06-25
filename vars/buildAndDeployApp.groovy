@@ -64,12 +64,17 @@ def call(Map config) {
                 }
             }
 
-            stage('Get Git Commit Hash') {
+            stage('Get Git Commit Hash and Message') {
                 steps {
                     script {
-                        echo "Git 커밋 해시 가져오기..."
-                        env.GIT_COMMIT_HASH = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
-                        echo "Current Git Commit Hash: ${env.GIT_COMMIT_HASH}"
+                        echo "Git 커밋 정보 가져오기..."
+                        env.GIT_COMMIT_SHORT_HASH = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
+                        env.GIT_COMMIT_FULL_HASH = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+                        env.GIT_COMMIT_MESSAGE_RAW = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
+
+                        echo "Current Git Short Commit Hash: ${env.GIT_COMMIT_SHORT_HASH}"
+                        echo "Current Git Full Commit Hash: ${env.GIT_COMMIT_FULL_HASH}"
+                        echo "Current Git Commit Message (Subject): ${env.GIT_COMMIT_MESSAGE_RAW}"
                     }
                 }
             }
@@ -106,12 +111,12 @@ def call(Map config) {
                 steps {
                     container('dind') {
                         echo "Docker 이미지 빌드 및 푸시 시작..."
-                        sh "docker build -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_HASH} -f docker/Dockerfile ."
-                        sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_HASH}"
-                        echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_HASH}"
+                        sh "docker build -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f docker/Dockerfile ."
+                        sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
+                        echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
 
                         echo "Adding 'latest' tag and pushing..."
-                        sh "docker tag ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_HASH} ${env.DOCKER_IMAGE_NAME}:latest"
+                        sh "docker tag ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} ${env.DOCKER_IMAGE_NAME}:latest"
                         sh "docker push ${env.DOCKER_IMAGE_NAME}:latest"
                         echo "Docker 'latest' tag pushed: ${env.DOCKER_IMAGE_NAME}:latest"
                     }
@@ -143,9 +148,9 @@ def call(Map config) {
                             def imageUpdated = false
                             kustomization.images.each { image ->
                                 if (image.name == "${env.DOCKER_IMAGE_NAME}") {
-                                    image.newTag = env.GIT_COMMIT_HASH
+                                    image.newTag = env.GIT_COMMIT_SHORT_HASH
                                     imageUpdated = true
-                                    echo "Image tag updated to: ${env.GIT_COMMIT_HASH}"
+                                    echo "Image tag updated to: ${env.GIT_COMMIT_SHORT_HASH}"
                                 }
                             }
 
@@ -153,16 +158,21 @@ def call(Map config) {
                                 error "Error: Image '${env.DOCKER_IMAGE_NAME}' not found in ${kustomizationFile}. Please ensure it exists in the 'images' list."
                             }
 
-                            // patch-change-cause.yaml 파일이 있으면 수정
                             def kustomizationDir = kustomizationFile.substring(0, kustomizationFile.lastIndexOf('/'))
                             def patchFile = "${kustomizationDir}/patch-change-cause.yaml"
 
                             if (fileExists(patchFile)) {
                                 def patchContent = readFile(patchFile)
+                                def maxMessageLength = 16
+                                def commitMessageForCause = env.GIT_COMMIT_MESSAGE_RAW
+                                if (commitMessageForCause.length() > maxMessageLength) {
+                                    commitMessageForCause = commitMessageForCause.substring(0, maxMessageLength - 3) + "..."
+                                }
+                                def changeCauseValue = "Hash: ${env.GIT_COMMIT_FULL_HASH}, Log: ${commitMessageForCause}"
                                 def pattern = ~/kubernetes\.io\/change-cause:\s*'[^']*'/
-                                def updatedPatchContent = patchContent.replaceAll(pattern, "kubernetes.io/change-cause: 'Git Hash: ${env.GIT_COMMIT_HASH}'")
+                                def updatedPatchContent = patchContent.replaceAll(pattern, "kubernetes.io/change-cause: '${changeCauseValue}'")
                                 writeFile file: patchFile, text: updatedPatchContent
-                                echo "CHANGE-CAUSE annotation updated in patch file to: Git Hash: ${env.GIT_COMMIT_HASH}"
+                                echo "CHANGE-CAUSE annotation updated in patch file to: ${changeCauseValue}"
                             } else {
                                 echo "patch-change-cause.yaml not found. Skipping change-cause update."
                             }
@@ -184,7 +194,7 @@ def call(Map config) {
                                     sh "git add ${patchFile}"
                                 }
                                 try {
-                                    sh "git commit -m \"Update: ${config.appName} image tag to ${env.GIT_COMMIT_HASH}\""
+                                    sh "git commit -m \"Update: ${config.appName} image tag to ${env.GIT_COMMIT_SHORT_HASH}\""
                                     sh "git push origin ${config.k8sConfigsBranch}"
                                     echo "Successfully committed and pushed kustomization.yaml changes."
                                 } catch (Exception e) {
@@ -206,7 +216,7 @@ def call(Map config) {
                 echo "Pipeline finished."
             }
             success {
-                echo "Pipeline succeeded! 🎉 Docker Image: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_HASH}"
+                echo "Pipeline succeeded! 🎉 Docker Image: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
                 cleanWs()
             }
             failure {
