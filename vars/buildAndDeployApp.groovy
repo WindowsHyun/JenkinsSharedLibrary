@@ -14,6 +14,7 @@ def call(Map config) {
     config.kubernetesAgentLabel = config.kubernetesAgentLabel ?: 'builder'
     config.kubernetesServiceAccount = config.kubernetesServiceAccount ?: 'jenkins-admin'
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
+    config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
 
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
     def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${config.appName.toLowerCase()}/kustomization.yaml"
@@ -24,6 +25,7 @@ def call(Map config) {
     pipeline {
         agent {
             kubernetes {
+                cloud config.kubernetesCloud 
                 inheritFrom config.kubernetesAgentLabel
                 serviceAccount config.kubernetesServiceAccount
                 namespace config.kubernetesNamespace
