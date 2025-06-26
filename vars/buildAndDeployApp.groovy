@@ -24,7 +24,7 @@ def call(Map config) {
     pipeline {
         agent {
             kubernetes {
-                label config.kubernetesAgentLabel
+                inheritFrom config.kubernetesAgentLabel
                 serviceAccount config.kubernetesServiceAccount
                 namespace config.kubernetesNamespace
             }
