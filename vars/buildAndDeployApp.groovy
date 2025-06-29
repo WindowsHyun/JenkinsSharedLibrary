@@ -11,7 +11,7 @@ def call(Map config) {
     config.credentialId = config.credentialId ?: 'jenkins-ssh-credential'
     config.jenkinsUserEmail = config.jenkinsUserEmail ?: 'jenkins@thisisserver.com'
     config.jenkinsUserName = config.jenkinsUserName ?: 'Jenkins'
-    config.kubernetesAgentLabel = config.kubernetesAgentLabel ?: 'builder'
+    config.kubernetesAgentLabel = config.kubernetesAgentLabel ?: 'builder-k3s'
     config.kubernetesServiceAccount = config.kubernetesServiceAccount ?: 'jenkins-admin'
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
