@@ -1,10 +1,13 @@
 def call(Map config) {
+    // 필수 파라미터 검사
     if (!config.appName) error "appName 파라미터는 필수입니다."
     if (!config.repoUrl) error "repoUrl 파라미터는 필수입니다."
     if (!config.repoBranch) error "repoBranch 파라미터는 필수입니다."
-    if (!config.buildType) error "buildType 파라미터는 필수입니다 (예: 'go', 'docker-only', 'npm')."
+    if (!config.buildType) error "buildType 파라미터는 필수입니다 (예: 'go', 'npm', 'nextjs', 'docker-only')."
 
+    // 기본값 설정
     config.dockerRegistry = config.dockerRegistry ?: '192.168.0.201:5000'
+    config.dockerfilePath = config.dockerfilePath ?: 'Dockerfile' // Dockerfile 경로를 설정할 수 있도록 추가
     config.k8sConfigsRepoUrl = config.k8sConfigsRepoUrl ?: 'git@github.com:WindowsHyun/kubernetes-configs.git'
     config.k8sConfigsBranch = config.k8sConfigsBranch ?: 'develop'
     config.k8sKustomizePathPrefix = config.k8sKustomizePathPrefix ?: 'apps/dev'
@@ -16,16 +19,16 @@ def call(Map config) {
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
 
+    // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
     def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${config.appName.toLowerCase()}/kustomization.yaml"
     def gitReferenceRepoName = config.repoUrl.split('/')[-1].replace('.git', '')
     def gitReferenceRepo = "/git-reference-repo/${gitReferenceRepoName}.git"
 
-
     pipeline {
         agent {
             kubernetes {
-                cloud config.kubernetesCloud 
+                cloud config.kubernetesCloud
                 inheritFrom config.kubernetesAgentLabel
                 serviceAccount config.kubernetesServiceAccount
                 namespace config.kubernetesNamespace
@@ -88,7 +91,6 @@ def call(Map config) {
                 steps {
                     container('go') {
                         echo "Go 애플리케이션 빌드 시작 (go 컨테이너)..."
-                        sh 'pwd'
                         sh 'go version'
                         sh 'go mod download'
                         sh "go build -v -o ${config.appName} ."
@@ -109,11 +111,26 @@ def call(Map config) {
                 }
             }
 
+            // --- ✨ 새로 추가된 Next.js 빌드 스테이지 ---
+            stage('Build Next.js Application') {
+                when {
+                    expression { return config.buildType == 'nextjs' }
+                }
+                steps {
+                    container('node') {
+                        echo "Next.js 애플리케이션 빌드 시작 (node 컨테이너)..."
+                        sh 'npm install'
+                        sh 'npm run build'
+                    }
+                }
+            }
+
             stage('Build and Push Docker Image') {
                 steps {
                     container('dind') {
                         echo "Docker 이미지 빌드 및 푸시 시작..."
-                        sh "docker build -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f docker/Dockerfile ."
+                        // config.dockerfilePath를 사용하도록 수정
+                        sh "docker build -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f ${config.dockerfilePath} ."
                         sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
                         echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
 
