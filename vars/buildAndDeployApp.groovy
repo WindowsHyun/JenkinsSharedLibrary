@@ -121,6 +121,7 @@ def call(Map config) {
                         echo "Next.js 애플리케이션 빌드 시작 (node 컨테이너)..."
                         sh 'npm install'
                         sh 'npm run build'
+                        sh 'chown -R 1000:1000 .next'
                     }
                 }
             }
