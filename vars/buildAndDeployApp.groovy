@@ -107,6 +107,9 @@ def call(Map config) {
                         echo "Node.js 애플리케이션 빌드 시작 (node 컨테이너)..."
                         sh 'npm install'
                         sh 'npm run build'
+
+                        echo "Changing ownership of build artifacts..."
+                        sh 'chown -R jenkins:jenkins .next'
                     }
                 }
             }
@@ -121,6 +124,9 @@ def call(Map config) {
                         echo "Next.js 애플리케이션 빌드 시작 (node 컨테이너)..."
                         sh 'npm install'
                         sh 'npm run build'
+
+                        echo "Changing ownership of build artifacts..."
+                        sh 'chown -R jenkins:jenkins .next'
                     }
                 }
             }
