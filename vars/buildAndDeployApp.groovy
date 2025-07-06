@@ -109,7 +109,7 @@ def call(Map config) {
                         sh 'npm run build'
                     }
                     echo "Changing ownership back to the jenkins user..."
-                    sh 'chown -R jenkins:jenkins .next'
+                    sh 'sudo chown -R jenkins:jenkins .next'
                 }
             }
 
@@ -125,7 +125,7 @@ def call(Map config) {
                         sh 'npm run build'
                     }
                     echo "Changing ownership back to the jenkins user..."
-                    sh 'chown -R jenkins:jenkins .next'
+                    sh 'sudo chown -R jenkins:jenkins .next'
                 }
             }
 
