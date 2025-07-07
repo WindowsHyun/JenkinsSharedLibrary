@@ -129,8 +129,7 @@ def call(Map config) {
             stage('Verify Build Artifacts') {
                 steps {
                     echo "Verifying build artifacts..."
-                    sh 'ls -la' // 현재 폴더에 .next 폴더가 보이는지 확인
-                    sh 'ls -la .next' // .next 폴더 안에 static, standalone이 보이는지 확인
+                    sh 'ls -lah' 
                 }
             }
 
