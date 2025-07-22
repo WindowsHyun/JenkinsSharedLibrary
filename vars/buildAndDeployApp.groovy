@@ -24,7 +24,7 @@ def call(Map config) {
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
     def targetAppName = config.appName.toLowerCase()
     if (config.deploymentStrategy == 'blue-green') {
-        targetAppName = "${targetAppName}-green"
+        targetAppName = "${targetAppName}/green"
         echo "Blue/Green 배포 전략이 감지되었습니다. Green 환경에 배포합니다. Target: ${targetAppName}"
     }
     def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${targetAppName}/kustomization.yaml"
