@@ -18,10 +18,16 @@ def call(Map config) {
     config.kubernetesServiceAccount = config.kubernetesServiceAccount ?: 'jenkins-admin'
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
+    config.deploymentStrategy = config.deploymentStrategy ?: 'standard'
 
     // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
-    def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${config.appName.toLowerCase()}/kustomization.yaml"
+    def targetAppName = config.appName.toLowerCase()
+    if (config.deploymentStrategy == 'blue-green') {
+        targetAppName = "${targetAppName}-green"
+        echo "Blue/Green 배포 전략이 감지되었습니다. Green 환경에 배포합니다. Target: ${targetAppName}"
+    }
+    def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${targetAppName}/kustomization.yaml"
     def gitReferenceRepoName = config.repoUrl.split('/')[-1].replace('.git', '')
     def gitReferenceRepo = "/git-reference-repo/${gitReferenceRepoName}.git"
 
