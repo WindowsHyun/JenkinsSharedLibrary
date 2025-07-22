@@ -205,12 +205,13 @@ def call(Map config) {
                             }
 
                             writeYaml file: kustomizationFile, data: kustomization, overwrite: true
-                            
-                            sh '''
-                                mkdir -p ~/.ssh
-                                ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-                                chmod 644 ~/.ssh/known_hosts
-                            '''
+                            withCredentials([string(credentialsId: 'github-known-host', variable: 'GITHUB_HOST_KEY')]) {
+                                sh '''
+                                    mkdir -p ~/.ssh
+                                    echo "${GITHUB_HOST_KEY}" > ~/.ssh/known_hosts
+                                    chmod 644 ~/.ssh/known_hosts
+                                '''
+                            }
 
                             echo "변경된 kustomization.yaml 커밋 및 푸시..."
                             sh "git config user.email '${config.jenkinsUserEmail}'"
