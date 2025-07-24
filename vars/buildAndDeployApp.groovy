@@ -144,7 +144,7 @@ def call(Map config) {
                     container('dind') {
                         echo "Docker 이미지 빌드 및 푸시 시작..."
                         // config.dockerfilePath를 사용하도록 수정
-                        sh "docker build -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f ${config.dockerfilePath} ."
+                        sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f ${config.dockerfilePath} ."
                         sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
                         echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
 
