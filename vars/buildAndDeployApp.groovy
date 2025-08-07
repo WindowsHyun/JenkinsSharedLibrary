@@ -44,12 +44,6 @@ def call(Map config) {
             }
         }
 
-        tools {
-            if (config.enableSonarQube) {
-                sonar_scanner config.sonarqubeScanner
-            }
-        }
-
         environment {
             DOCKER_REGISTRY = "${config.dockerRegistry}"
             DOCKER_IMAGE_NAME = "${dockerImageName}"
@@ -157,6 +151,7 @@ def call(Map config) {
                             return
                         }
                         echo "SonarQube 분석을 시작합니다... (Container: ${containerName})"
+                        def sonarScannerHome = tool name: config.sonarqubeScanner, type: 'hudson.plugins.sonar.SonarRunnerInstallation'
                         container(containerName) {
                             withSonarQubeEnv(config.sonarqubeServer) {
                                 def sonarParams = [
@@ -176,7 +171,7 @@ def call(Map config) {
                                         sonarParams.add("-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info")
                                     }
                                 }
-                                sh "$SONAR_SCANNER_HOME/bin/sonar-scanner ${sonarParams.join(' ')}"
+                                sh "${sonarScannerHome}/bin/sonar-scanner ${sonarParams.join(' ')}"
                             }
                         }
                     }
