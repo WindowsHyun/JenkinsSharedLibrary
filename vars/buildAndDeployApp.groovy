@@ -19,6 +19,9 @@ def call(Map config) {
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
     config.deploymentStrategy = config.deploymentStrategy ?: 'standard'
+    config.enableSonarQube = config.get('enableSonarQube', false) 
+    config.sonarqubeServer = config.get('sonarqubeServer', 'JenkinsSonarqube') 
+    config.sonarqubeScanner = config.get('sonarqubeScanner', 'JenkinsSonarqube') 
 
     // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
@@ -38,6 +41,12 @@ def call(Map config) {
                 inheritFrom config.kubernetesAgentLabel
                 serviceAccount config.kubernetesServiceAccount
                 namespace config.kubernetesNamespace
+            }
+        }
+
+        tools {
+            if (config.enableSonarQube) {
+                sonar_scanner config.sonarqubeScanner
             }
         }
 
@@ -128,6 +137,48 @@ def call(Map config) {
                         sh 'npm install'
                         sh 'npm run build'
                         sh 'chown -R 1000:1000 .next'
+                    }
+                }
+            }
+
+            stage('SonarQube Static Analysis') {
+                when {
+                    expression { return config.enableSonarQube }
+                }
+                steps {
+                    script {
+                        def containerName
+                        if (config.buildType == 'go') {
+                            containerName = 'go'
+                        } else if (config.buildType == 'npm' || config.buildType == 'nextjs') {
+                            containerName = 'node'
+                        } else {
+                            echo "WARN: SonarQube analysis for buildType '${config.buildType}' is not configured. Skipping."
+                            return
+                        }
+                        echo "SonarQube 분석을 시작합니다... (Container: ${containerName})"
+                        container(containerName) {
+                            withSonarQubeEnv(config.sonarqubeServer) {
+                                def sonarParams = [
+                                    "-Dsonar.projectKey=${config.appName}",
+                                    "-Dsonar.projectName=${config.appName}",
+                                    "-Dsonar.sources=.",
+                                    "-Dsonar.host.url=${SONAR_HOST_URL}",
+                                    "-Dsonar.login=${SONAR_AUTH_TOKEN}"
+                                ]
+
+                                if (config.buildType == 'go') {
+                                    if (fileExists('coverage.out')) {
+                                        sonarParams.add("-Dsonar.go.coverage.reportPaths=coverage.out")
+                                    }
+                                } else if (config.buildType == 'npm' || config.buildType == 'nextjs') {
+                                    if (fileExists('coverage/lcov.info')) {
+                                        sonarParams.add("-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info")
+                                    }
+                                }
+                                sh "$SONAR_SCANNER_HOME/bin/sonar-scanner ${sonarParams.join(' ')}"
+                            }
+                        }
                     }
                 }
             }
