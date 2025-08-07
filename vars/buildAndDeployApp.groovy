@@ -150,7 +150,7 @@ def call(Map config) {
                                     "-Dsonar.projectName=${config.appName}",
                                     "-Dsonar.sources=.",
                                     "-Dsonar.host.url=${SONAR_HOST_URL}",
-                                    "-Dsonar.login=${SONAR_AUTH_TOKEN}"
+                                    "-Dsonar.token=${SONAR_AUTH_TOKEN}"
                                 ]
 
                                 if (config.buildType == 'go') {
