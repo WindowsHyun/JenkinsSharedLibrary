@@ -141,18 +141,9 @@ def call(Map config) {
                 }
                 steps {
                     script {
-                        def containerName
-                        if (config.buildType == 'go') {
-                            containerName = 'go'
-                        } else if (config.buildType == 'npm' || config.buildType == 'nextjs') {
-                            containerName = 'node'
-                        } else {
-                            echo "WARN: SonarQube analysis for buildType '${config.buildType}' is not configured. Skipping."
-                            return
-                        }
-                        echo "SonarQube 분석을 시작합니다... (Container: ${containerName})"
+                        echo "SonarQube 분석을 시작합니다..."
                         def sonarScannerHome = tool name: config.sonarqubeScanner, type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                        container(containerName) {
+                        container('sonar') {
                             withSonarQubeEnv(config.sonarqubeServer) {
                                 def sonarParams = [
                                     "-Dsonar.projectKey=${config.appName}",
