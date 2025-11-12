@@ -48,6 +48,10 @@ def call(Map config) {
 apiVersion: v1
 kind: Pod
 spec:
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
   hostAliases:
   - ip: "${config.harborHostAliasIp}"
     hostnames:
