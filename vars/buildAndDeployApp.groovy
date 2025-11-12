@@ -47,6 +47,9 @@ def call(Map config) {
                 yaml """
 apiVersion: v1
 kind: Pod
+metadata:
+  annotations:
+    linkerd.io/inject: disabled
 spec:
   securityContext:
     runAsUser: 1000
