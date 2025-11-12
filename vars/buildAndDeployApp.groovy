@@ -55,13 +55,30 @@ spec:
     runAsUser: 1000
     runAsGroup: 1000
     fsGroup: 1000
-    privileged: true
   hostAliases:
   - ip: "${config.harborHostAliasIp}"
     hostnames:
     - "harbor.thisisserver.com"
   imagePullSecrets:
   - name: ${config.harborImagePullSecret}
+  containers:
+  - name: dind
+    image: docker:dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+    - name: DOCKER_DRIVER
+      value: overlay2
+    - name: DOCKER_HOST
+      value: tcp://localhost:2375
+    volumeMounts:
+    - name: workspace-volume
+      mountPath: /home/jenkins/agent
+  volumes:
+  - name: workspace-volume
+    emptyDir: {}
 """
             }
         }
