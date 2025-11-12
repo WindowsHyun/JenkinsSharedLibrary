@@ -87,9 +87,9 @@ def call(Map config) {
                         env.GIT_COMMIT_FULL_HASH = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                         env.GIT_COMMIT_MESSAGE_RAW = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
                         
-                        // 이미지 태그 생성: YYYYMMDD-HHMM-빌드번호
-                        def dateTime = sh(returnStdout: true, script: 'date +%Y%m%d-%H%M').trim()
-                        env.DOCKER_IMAGE_TAG = "${dateTime}-${env.BUILD_NUMBER}"
+                        // 이미지 태그 생성: YYYYMMDD_빌드번호
+                        def dateTime = sh(returnStdout: true, script: 'date +%Y%m%d').trim()
+                        env.DOCKER_IMAGE_TAG = "${dateTime}_${env.BUILD_NUMBER}"
 
                         echo "Current Git Short Commit Hash: ${env.GIT_COMMIT_SHORT_HASH}"
                         echo "Current Git Full Commit Hash: ${env.GIT_COMMIT_FULL_HASH}"
