@@ -6,7 +6,7 @@ def call(Map config) {
     if (!config.buildType) error "buildType 파라미터는 필수입니다 (예: 'go', 'npm', 'nextjs', 'docker-only')."
 
     // 기본값 설정
-    config.dockerRegistry = config.dockerRegistry ?: '192.168.0.201:5000'
+    config.dockerRegistry = config.dockerRegistry ?: 'harbor.thisisserver.com/library'
     config.dockerfilePath = config.dockerfilePath ?: 'Dockerfile' // Dockerfile 경로를 설정할 수 있도록 추가
     config.k8sConfigsRepoUrl = config.k8sConfigsRepoUrl ?: 'git@github.com:WindowsHyun/kubernetes-configs.git'
     config.k8sConfigsBranch = config.k8sConfigsBranch ?: 'develop'
@@ -21,7 +21,8 @@ def call(Map config) {
     config.deploymentStrategy = config.deploymentStrategy ?: 'standard'
     config.enableSonarQube = config.get('enableSonarQube', false) 
     config.sonarqubeServer = config.get('sonarqubeServer', 'JenkinsSonarqube') 
-    config.sonarqubeScanner = config.get('sonarqubeScanner', 'JenkinsSonarqube') 
+    config.sonarqubeScanner = config.get('sonarqubeScanner', 'JenkinsSonarqube')
+    config.harborCredentialId = config.harborCredentialId ?: 'harbor' 
 
     // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
@@ -179,6 +180,12 @@ def call(Map config) {
             stage('Build and Push Docker Image') {
                 steps {
                     container('dind') {
+                        echo "Harbor 레지스트리에 로그인 중..."
+                        withCredentials([usernamePassword(credentialsId: config.harborCredentialId, usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASSWORD')]) {
+                            sh '''
+                                echo "${HARBOR_PASSWORD}" | docker login harbor.thisisserver.com -u "${HARBOR_USER}" --password-stdin
+                            '''
+                        }
                         echo "Docker 이미지 빌드 및 푸시 시작..."
                         // config.dockerfilePath를 사용하도록 수정
                         sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f ${config.dockerfilePath} ."
