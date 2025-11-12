@@ -63,7 +63,7 @@ spec:
   - name: ${config.harborImagePullSecret}
   containers:
   - name: dind
-    image: docker:dind
+    image: docker:dind-rootless
     securityContext:
       privileged: true
     env:
