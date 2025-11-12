@@ -86,10 +86,15 @@ def call(Map config) {
                         env.GIT_COMMIT_SHORT_HASH = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
                         env.GIT_COMMIT_FULL_HASH = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                         env.GIT_COMMIT_MESSAGE_RAW = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
+                        
+                        // 이미지 태그 생성: YYYYMMDD-HHMM-빌드번호
+                        def dateTime = sh(returnStdout: true, script: 'date +%Y%m%d-%H%M').trim()
+                        env.DOCKER_IMAGE_TAG = "${dateTime}-${env.BUILD_NUMBER}"
 
                         echo "Current Git Short Commit Hash: ${env.GIT_COMMIT_SHORT_HASH}"
                         echo "Current Git Full Commit Hash: ${env.GIT_COMMIT_FULL_HASH}"
                         echo "Current Git Commit Message (Subject): ${env.GIT_COMMIT_MESSAGE_RAW}"
+                        echo "Docker Image Tag: ${env.DOCKER_IMAGE_TAG}"
                     }
                 }
             }
@@ -188,14 +193,9 @@ def call(Map config) {
                         }
                         echo "Docker 이미지 빌드 및 푸시 시작..."
                         // config.dockerfilePath를 사용하도록 수정
-                        sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} -f ${config.dockerfilePath} ."
-                        sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
-                        echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
-
-                        echo "Adding 'latest' tag and pushing..."
-                        sh "docker tag ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH} ${env.DOCKER_IMAGE_NAME}:latest"
-                        sh "docker push ${env.DOCKER_IMAGE_NAME}:latest"
-                        echo "Docker 'latest' tag pushed: ${env.DOCKER_IMAGE_NAME}:latest"
+                        sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
+                        sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                        echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
                     }
                 }
             }
@@ -225,9 +225,9 @@ def call(Map config) {
                             def imageUpdated = false
                             kustomization.images.each { image ->
                                 if (image.name == "${env.DOCKER_IMAGE_NAME}") {
-                                    image.newTag = env.GIT_COMMIT_SHORT_HASH
+                                    image.newTag = env.DOCKER_IMAGE_TAG
                                     imageUpdated = true
-                                    echo "Image tag updated to: ${env.GIT_COMMIT_SHORT_HASH}"
+                                    echo "Image tag updated to: ${env.DOCKER_IMAGE_TAG}"
                                 }
                             }
 
@@ -272,7 +272,7 @@ def call(Map config) {
                                     sh "git add ${patchFile}"
                                 }
                                 try {
-                                    sh "git commit -m \"Update: ${config.appName} image tag to ${env.GIT_COMMIT_SHORT_HASH}\""
+                                    sh "git commit -m \"Update: ${config.appName} image tag to ${env.DOCKER_IMAGE_TAG}\""
                                     sh "git push origin ${config.k8sConfigsBranch}"
                                     echo "Successfully committed and pushed kustomization.yaml changes."
                                 } catch (Exception e) {
@@ -294,7 +294,7 @@ def call(Map config) {
                 echo "Pipeline finished."
             }
             success {
-                echo "Pipeline succeeded! 🎉 Docker Image: ${env.DOCKER_IMAGE_NAME}:${env.GIT_COMMIT_SHORT_HASH}"
+                echo "Pipeline succeeded! 🎉 Docker Image: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
                 cleanWs()
             }
             failure {
