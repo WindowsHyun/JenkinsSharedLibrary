@@ -104,8 +104,8 @@ def call(Map config) {
                     expression { return config.buildType == 'go' }
                 }
                 steps {
-                    container('go') {
-                        echo "Go 애플리케이션 빌드 시작 (go 컨테이너)..."
+                    container('jnlp') {
+                        echo "Go 애플리케이션 빌드 시작 (jnlp 컨테이너)..."
                         sh 'go version'
                         sh 'go mod download'
                         sh "go build -v -o ${config.appName} ."
@@ -118,8 +118,8 @@ def call(Map config) {
                     expression { return config.buildType == 'npm' }
                 }
                 steps {
-                    container('node') {
-                        echo "Node.js 애플리케이션 빌드 시작 (node 컨테이너)..."
+                    container('jnlp') {
+                        echo "Node.js 애플리케이션 빌드 시작 (jnlp 컨테이너)..."
                         sh 'npm install'
                         sh 'npm run build'
                     }
@@ -132,8 +132,8 @@ def call(Map config) {
                     expression { return config.buildType == 'nextjs' }
                 }
                 steps {
-                    container('node') {
-                        echo "Next.js 애플리케이션 빌드 시작 (node 컨테이너)..."
+                    container('jnlp') {
+                        echo "Next.js 애플리케이션 빌드 시작 (jnlp 컨테이너)..."
                         sh 'npm install'
                         sh 'npm run build'
                         sh 'chown -R 1000:1000 .next'
@@ -149,7 +149,7 @@ def call(Map config) {
                     script {
                         echo "SonarQube 분석을 시작합니다..."
                         def sonarScannerHome = tool name: config.sonarqubeScanner, type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                        container('sonar') {
+                        container('jnlp') {
                             withSonarQubeEnv(config.sonarqubeServer) {
                                 def sonarParams = [
                                     "-Dsonar.projectKey=${config.appName}",
