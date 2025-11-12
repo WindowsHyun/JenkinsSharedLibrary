@@ -55,6 +55,7 @@ spec:
     runAsUser: 1000
     runAsGroup: 1000
     fsGroup: 1000
+    privileged: true
   hostAliases:
   - ip: "${config.harborHostAliasIp}"
     hostnames:
