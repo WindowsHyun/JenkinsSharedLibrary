@@ -22,7 +22,8 @@ def call(Map config) {
     config.enableSonarQube = config.get('enableSonarQube', false) 
     config.sonarqubeServer = config.get('sonarqubeServer', 'JenkinsSonarqube') 
     config.sonarqubeScanner = config.get('sonarqubeScanner', 'JenkinsSonarqube')
-    config.harborCredentialId = config.harborCredentialId ?: 'harbor' 
+    config.harborCredentialId = config.harborCredentialId ?: 'harbor'
+    config.harborHostAliasIp = config.harborHostAliasIp ?: '192.168.0.201'
 
     // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
@@ -42,6 +43,15 @@ def call(Map config) {
                 inheritFrom config.kubernetesAgentLabel
                 serviceAccount config.kubernetesServiceAccount
                 namespace config.kubernetesNamespace
+                yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  hostAliases:
+  - ip: "${config.harborHostAliasIp}"
+    hostnames:
+    - "harbor.thisisserver.com"
+"""
             }
         }
 
