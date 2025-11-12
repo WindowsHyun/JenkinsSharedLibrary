@@ -24,6 +24,7 @@ def call(Map config) {
     config.sonarqubeScanner = config.get('sonarqubeScanner', 'JenkinsSonarqube')
     config.harborCredentialId = config.harborCredentialId ?: 'harbor'
     config.harborHostAliasIp = config.harborHostAliasIp ?: '192.168.0.201'
+    config.harborImagePullSecret = config.harborImagePullSecret ?: 'harbor-registry-secret' // Harbor 이미지 pull을 위한 Kubernetes Secret 이름
 
     // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
@@ -51,6 +52,8 @@ spec:
   - ip: "${config.harborHostAliasIp}"
     hostnames:
     - "harbor.thisisserver.com"
+  imagePullSecrets:
+  - name: ${config.harborImagePullSecret}
 """
             }
         }
