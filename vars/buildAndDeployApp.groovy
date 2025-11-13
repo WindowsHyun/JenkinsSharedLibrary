@@ -221,9 +221,10 @@ spec:
                                 string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
                                 string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
                             ]) {
-                                // 사용자명과 비밀번호를 안전하게 전달
+                                // podman/docker login - 환경 변수를 직접 사용하여 안전하게 전달
+                                // podman의 경우 --password-stdin이 제대로 작동하지 않을 수 있으므로 직접 전달
                                 sh """
-                                    echo '${HARBOR_PASSWORD}' | ${dockerCmd} login ${harborHost} --username '${HARBOR_USER}' --password-stdin --tls-verify=false
+                                    ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false
                                 """
                             }
                             
