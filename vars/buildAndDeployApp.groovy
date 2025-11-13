@@ -208,7 +208,7 @@ spec:
                         echo "Harbor 레지스트리에 로그인 중..."
                         withCredentials([usernamePassword(credentialsId: config.harborCredentialId, usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASSWORD')]) {
                             sh '''
-                                echo "${HARBOR_PASSWORD}" | docker login harbor.thisisserver.com -u "${HARBOR_USER}" --password-stdin
+                                printf '%s' "${HARBOR_PASSWORD}" | docker login harbor.thisisserver.com -u "${HARBOR_USER}" --password-stdin
                             '''
                         }
                         echo "Docker 이미지 빌드 및 푸시 시작..."
