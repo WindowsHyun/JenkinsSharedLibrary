@@ -71,6 +71,8 @@ spec:
             K8S_CONFIGS_REPO_URL = "${config.k8sConfigsRepoUrl}"
             K8S_CONFIGS_BRANCH = "${config.k8sConfigsBranch}"
             K8S_KUSTOMIZE_PATH = "${k8sKustomizePath}"
+            HARBOR_USER = credentials('HARBOR_USER')
+            HARBOR_PASSWORD = credentials('HARBOR_PASSWORD')
         }
 
         stages {
