@@ -210,26 +210,27 @@ spec:
                             def harborHost = "harbor.thisisserver.com"
                             def harborIp = config.harborHostAliasIp
                             
-                            // 헤어핀 문제 해결: 컨테이너 내부 /etc/hosts 확인 및 수정
+                            // 헤어핀 문제 해결: 컨테이너 내부 /etc/hosts 확인
                             echo "Harbor 호스트 설정 확인 중..."
                             sh """
                                 echo "현재 /etc/hosts의 harbor.thisisserver.com 설정:"
                                 grep harbor.thisisserver.com /etc/hosts || echo "harbor.thisisserver.com이 /etc/hosts에 없습니다"
                                 
-                                # /etc/hosts에 Harbor IP 추가 (이미 있으면 업데이트)
-                                if grep -q "harbor.thisisserver.com" /etc/hosts; then
-                                    echo "기존 harbor.thisisserver.com 항목을 업데이트합니다"
-                                    sed -i '/harbor.thisisserver.com/d' /etc/hosts
+                                # /etc/hosts 확인 (Pod의 hostAliases가 이미 설정되어 있음)
+                                if ! grep -q "${harborIp}.*harbor.thisisserver.com" /etc/hosts; then
+                                    echo "경고: /etc/hosts에 올바른 Harbor IP가 설정되지 않았습니다"
+                                    echo "Pod의 hostAliases 설정을 확인하세요"
+                                else
+                                    echo "/etc/hosts 설정이 올바릅니다"
                                 fi
-                                echo "${harborIp} harbor.thisisserver.com" >> /etc/hosts
-                                
-                                echo "업데이트된 /etc/hosts의 harbor.thisisserver.com 설정:"
-                                grep harbor.thisisserver.com /etc/hosts
                                 
                                 # 네트워크 연결 테스트
                                 echo "Harbor 서버 연결 테스트 중..."
-                                ping -c 2 ${harborHost} || echo "ping 실패 (정상일 수 있음)"
-                                curl -k -I https://${harborHost} || echo "HTTPS 연결 테스트 완료"
+                                echo "Harbor IP로 직접 연결 테스트: ${harborIp}"
+                                ping -c 1 ${harborIp} || echo "ping 실패 (정상일 수 있음)"
+                                echo "Harbor 호스트명으로 연결 테스트: ${harborHost}"
+                                ping -c 1 ${harborHost} || echo "ping 실패 (정상일 수 있음)"
+                                curl -k -I https://${harborHost} 2>&1 | head -5 || echo "HTTPS 연결 테스트 완료"
                             """
                             
                             // docker 또는 podman 중 사용 가능한 것을 확인
