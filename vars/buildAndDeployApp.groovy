@@ -245,136 +245,64 @@ spec:
                                 string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
                                 string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
                             ]) {
-                                // 디버깅: 사용자명 길이 및 첫/마지막 문자 확인 (실제 값은 마스킹됨)
-                                sh """
-                                    echo "HARBOR_USER 길이: \$(echo -n "\$HARBOR_USER" | wc -c)"
-                                    echo "HARBOR_USER 첫 문자: \$(echo -n "\$HARBOR_USER" | cut -c1)"
-                                    echo "HARBOR_USER 마지막 문자: \$(echo -n "\$HARBOR_USER" | rev | cut -c1)"
-                                    echo "HARBOR_PASSWORD 길이: \$(echo -n "\$HARBOR_PASSWORD" | wc -c)"
-                                    echo "HARBOR_PASSWORD 첫 문자: \$(echo -n "\$HARBOR_PASSWORD" | cut -c1)"
-                                    echo "HARBOR_PASSWORD 마지막 문자: \$(echo -n "\$HARBOR_PASSWORD" | rev | cut -c1)"
-                                """
-                                
-                                // Harbor robot 계정 사용자명 형식 확인
-                                // 예상 형식: robot$library+jenkins
-                                // 실제 Jenkins credentials에 저장된 값이 정확한지 확인 필요
-                                
-                                // 방법 1: podman login with --password (직접 전달)
-                                echo "방법 1: --password 옵션으로 로그인 시도..."
-                                def loginResult = sh(
+                                // Harbor API로 크리덴셜 검증
+                                echo "Harbor API로 크리덴셜 검증 중..."
+                                def apiTest = sh(
                                     script: """
-                                        ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false 2>&1
+                                        curl -k -u "\$HARBOR_USER:\$HARBOR_PASSWORD" https://${harborHost}/api/v2.0/projects 2>&1 | head -10
                                     """,
                                     returnStatus: true
                                 )
                                 
-                                if (loginResult != 0) {
-                                    // 방법 2: printf를 사용하여 특수문자 처리
-                                    echo "방법 1 실패, 방법 2: printf + --password-stdin 시도 중..."
-                                    def loginResult2 = sh(
-                                        script: """
-                                            printf '%s' "\$HARBOR_PASSWORD" | ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password-stdin --tls-verify=false 2>&1
-                                        """,
-                                        returnStatus: true
-                                    )
-                                    
-                                    if (loginResult2 != 0) {
-                                        // 방법 3: 환경 변수를 사용한 로그인 (podman 특화)
-                                        echo "방법 2 실패, 방법 3: 환경 변수 사용 시도 중..."
-                                        def loginResult3 = sh(
-                                            script: """
-                                                export REGISTRY_AUTH_FILE=\${HOME}/.config/containers/auth.json
-                                                mkdir -p \$(dirname \$REGISTRY_AUTH_FILE)
-                                                ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false 2>&1
-                                            """,
-                                            returnStatus: true
-                                        )
-                                        
-                                        if (loginResult3 != 0) {
-                                            // 방법 4: curl을 사용한 Harbor API 직접 호출 테스트
-                                            echo "방법 3 실패, 방법 4: Harbor API 직접 호출 테스트..."
-                                            def apiTest = sh(
-                                                script: """
-                                                    curl -k -u "\$HARBOR_USER:\$HARBOR_PASSWORD" https://${harborHost}/api/v2.0/projects 2>&1 | head -10
-                                                """,
-                                                returnStatus: true
-                                            )
-                                            
-                                            if (apiTest == 0) {
-                                                echo "Harbor API 호출 성공! 크리덴셜은 올바릅니다."
-                                                echo "podman login 명령어 문제로 보입니다. 인증 파일을 직접 생성합니다..."
-                                                
-                                                // 방법 5: podman 인증 파일 직접 생성 (Harbor API가 성공했으므로 크리덴셜은 정확함)
-                                                sh """
-                                                    # podman 인증 파일 경로 설정
-                                                    AUTH_DIR="\${HOME}/.config/containers"
-                                                    AUTH_FILE="\${AUTH_DIR}/auth.json"
-                                                    
-                                                    mkdir -p "\${AUTH_DIR}"
-                                                    
-                                                    # Base64 인코딩된 인증 정보 생성 (호환성을 위해 옵션 없이 사용)
-                                                    AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
-                                                    
-                                                    # podman 인증 파일 형식으로 생성 (JSON 형식)
-                                                    echo '{' > "\${AUTH_FILE}"
-                                                    echo '  "auths": {' >> "\${AUTH_FILE}"
-                                                    echo '    "'${harborHost}'": {' >> "\${AUTH_FILE}"
-                                                    echo '      "auth": "'"\${AUTH_B64}"'"' >> "\${AUTH_FILE}"
-                                                    echo '    }' >> "\${AUTH_FILE}"
-                                                    echo '  }' >> "\${AUTH_FILE}"
-                                                    echo '}' >> "\${AUTH_FILE}"
-                                                    
-                                                    chmod 600 "\${AUTH_FILE}"
-                                                    echo "인증 파일 생성 완료: \${AUTH_FILE}"
-                                                    
-                                                    # 인증 파일이 올바르게 생성되었는지 확인
-                                                    if [ -f "\${AUTH_FILE}" ]; then
-                                                        echo "인증 파일 생성 성공!"
-                                                        echo "인증 파일 내용 확인 (auth 값 제외):"
-                                                        cat "\${AUTH_FILE}" | sed 's/"auth": "[^"]*"/"auth": "***"/g'
-                                                    else
-                                                        echo "인증 파일 생성 실패!"
-                                                        exit 1
-                                                    fi
-                                                """
-                                                
-                                                echo "Harbor 레지스트리 인증 설정 완료! (방법 5: 인증 파일 직접 생성)"
-                                            } else {
-                                                echo "Harbor API 호출도 실패했습니다."
-                                                error """
-Harbor 로그인 실패!
+                                if (apiTest != 0) {
+                                    error """
+Harbor API 호출 실패! 크리덴셜이 올바르지 않을 수 있습니다.
 
 가능한 원인:
 1. Jenkins credentials에 저장된 값이 잘못되었을 수 있습니다.
    - HARBOR_USER credential ID 확인 필요
    - HARBOR_PASSWORD credential ID 확인 필요
-   - 예상 값: robot\$library+jenkins / fiTCbXk4oMX4ajwP9LDFCNPV7XDRdGUK
 
 2. Harbor robot 계정이 비활성화되었거나 권한이 변경되었을 수 있습니다.
-
-3. podman의 인증 방식이 docker와 다를 수 있습니다.
-
-4. 다른 곳에서 작동하는 정확한 로그인 명령어를 확인해주세요.
-   예: podman login harbor.thisisserver.com --username "..." --password "..." --tls-verify=false
-
-디버깅 정보:
-- 사용자명 길이: 21자 (예상과 일치)
-- 비밀번호 길이: 32자 (예상과 일치)
-- 네트워크 연결: 성공
-- 사용자명 첫/마지막 문자: r/s (예상과 일치)
-- 비밀번호 첫/마지막 문자: f/K (예상과 일치)
-- Harbor API 호출: 실패
 """
-                                            }
-                                        } else {
-                                            echo "Harbor 레지스트리 로그인 성공! (방법 3)"
-                                        }
-                                    } else {
-                                        echo "Harbor 레지스트리 로그인 성공! (방법 2)"
-                                    }
-                                } else {
-                                    echo "Harbor 레지스트리 로그인 성공! (방법 1)"
                                 }
+                                
+                                echo "Harbor API 호출 성공! 크리덴셜이 올바릅니다."
+                                echo "podman 인증 파일을 생성합니다..."
+                                
+                                // podman 인증 파일 직접 생성
+                                sh """
+                                    # podman 인증 파일 경로 설정
+                                    AUTH_DIR="\${HOME}/.config/containers"
+                                    AUTH_FILE="\${AUTH_DIR}/auth.json"
+                                    
+                                    mkdir -p "\${AUTH_DIR}"
+                                    
+                                    # Base64 인코딩된 인증 정보 생성
+                                    AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
+                                    
+                                    # podman 인증 파일 형식으로 생성 (JSON 형식)
+                                    echo '{' > "\${AUTH_FILE}"
+                                    echo '  "auths": {' >> "\${AUTH_FILE}"
+                                    echo '    "'${harborHost}'": {' >> "\${AUTH_FILE}"
+                                    echo '      "auth": "'"\${AUTH_B64}"'"' >> "\${AUTH_FILE}"
+                                    echo '    }' >> "\${AUTH_FILE}"
+                                    echo '  }' >> "\${AUTH_FILE}"
+                                    echo '}' >> "\${AUTH_FILE}"
+                                    
+                                    chmod 600 "\${AUTH_FILE}"
+                                    echo "인증 파일 생성 완료: \${AUTH_FILE}"
+                                    
+                                    # 인증 파일이 올바르게 생성되었는지 확인
+                                    if [ -f "\${AUTH_FILE}" ]; then
+                                        echo "인증 파일 생성 성공!"
+                                    else
+                                        echo "인증 파일 생성 실패!"
+                                        exit 1
+                                    fi
+                                """
+                                
+                                echo "Harbor 레지스트리 인증 설정 완료!"
                             }
                         }
                     }
