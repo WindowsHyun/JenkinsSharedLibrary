@@ -206,11 +206,8 @@ spec:
                 steps {
                     container('jnlp') {
                         echo "Harbor 레지스트리에 로그인 중..."
-                        withCredentials([usernamePassword(credentialsId: config.harborCredentialId, usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASSWORD')]) {
-                            sh "docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} harbor.thisisserver.com"
-                        }
+                        sh "docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} harbor.thisisserver.com"
                         echo "Docker 이미지 빌드 및 푸시 시작..."
-                        // config.dockerfilePath를 사용하도록 수정
                         sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
                         sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
                         echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
