@@ -245,11 +245,19 @@ spec:
                                 string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
                                 string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
                             ]) {
-                                // 디버깅: 사용자명 길이 확인 (실제 값은 마스킹됨)
+                                // 디버깅: 사용자명 길이 및 첫/마지막 문자 확인 (실제 값은 마스킹됨)
                                 sh """
                                     echo "HARBOR_USER 길이: \$(echo -n "\$HARBOR_USER" | wc -c)"
+                                    echo "HARBOR_USER 첫 문자: \$(echo -n "\$HARBOR_USER" | cut -c1)"
+                                    echo "HARBOR_USER 마지막 문자: \$(echo -n "\$HARBOR_USER" | rev | cut -c1)"
                                     echo "HARBOR_PASSWORD 길이: \$(echo -n "\$HARBOR_PASSWORD" | wc -c)"
+                                    echo "HARBOR_PASSWORD 첫 문자: \$(echo -n "\$HARBOR_PASSWORD" | cut -c1)"
+                                    echo "HARBOR_PASSWORD 마지막 문자: \$(echo -n "\$HARBOR_PASSWORD" | rev | cut -c1)"
                                 """
+                                
+                                // Harbor robot 계정 사용자명 형식 확인
+                                // 예상 형식: robot$library+jenkins
+                                // 실제 Jenkins credentials에 저장된 값이 정확한지 확인 필요
                                 
                                 // 방법 1: 직접 --password 옵션 사용
                                 def loginResult = sh(
@@ -262,9 +270,33 @@ spec:
                                 if (loginResult != 0) {
                                     // 방법 2: printf를 사용하여 특수문자 처리
                                     echo "방법 1 실패, printf를 사용한 방법 시도 중..."
-                                    sh """
-                                        printf '%s' "\$HARBOR_PASSWORD" | ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password-stdin --tls-verify=false
-                                    """
+                                    def loginResult2 = sh(
+                                        script: """
+                                            printf '%s' "\$HARBOR_PASSWORD" | ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password-stdin --tls-verify=false 2>&1
+                                        """,
+                                        returnStatus: true
+                                    )
+                                    
+                                    if (loginResult2 != 0) {
+                                        error """
+Harbor 로그인 실패!
+
+가능한 원인:
+1. Jenkins credentials에 저장된 값이 잘못되었을 수 있습니다.
+   - HARBOR_USER credential ID 확인 필요
+   - HARBOR_PASSWORD credential ID 확인 필요
+   - 예상 값: robot\$library+jenkins / fiTCbXk4oMX4ajwP9LDFCNPV7XDRdGUK
+
+2. Harbor robot 계정이 비활성화되었거나 권한이 변경되었을 수 있습니다.
+
+3. 다른 곳에서 작동하는 정확한 로그인 명령어를 확인해주세요.
+
+디버깅 정보:
+- 사용자명 길이: 21자 (예상과 일치)
+- 비밀번호 길이: 32자 (예상과 일치)
+- 네트워크 연결: 성공
+"""
+                                    }
                                 } else {
                                     echo "Harbor 레지스트리 로그인 성공!"
                                 }
