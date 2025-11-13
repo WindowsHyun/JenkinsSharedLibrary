@@ -71,8 +71,6 @@ spec:
             K8S_CONFIGS_REPO_URL = "${config.k8sConfigsRepoUrl}"
             K8S_CONFIGS_BRANCH = "${config.k8sConfigsBranch}"
             K8S_KUSTOMIZE_PATH = "${k8sKustomizePath}"
-            HARBOR_USER = credentials('HARBOR_USER')
-            HARBOR_PASSWORD = credentials('HARBOR_PASSWORD')
         }
 
         stages {
@@ -218,14 +216,16 @@ spec:
                                 error "docker 또는 podman이 설치되어 있지 않습니다."
                             }
                             
-                            // 사용자명에 특수문자가 있으므로 인용부호로 감싸서 처리
-                            def username = "${env.HARBOR_USER}"
-                            def password = "${env.HARBOR_PASSWORD}"
-                            
-                            // docker/podman login 명령어 실행 (특수문자 처리를 위해 환경 변수 사용)
-                            sh """
-                                echo "\${HARBOR_PASSWORD}" | ${dockerCmd} login ${harborHost} --username "\${HARBOR_USER}" --password-stdin --tls-verify=false
-                            """
+                            // withCredentials를 사용하여 크리덴셜 직접 바인딩
+                            withCredentials([
+                                string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
+                                string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
+                            ]) {
+                                // 사용자명과 비밀번호를 안전하게 전달
+                                sh """
+                                    echo '${HARBOR_PASSWORD}' | ${dockerCmd} login ${harborHost} --username '${HARBOR_USER}' --password-stdin --tls-verify=false
+                                """
+                            }
                             
                             echo "Harbor 레지스트리 로그인 성공!"
                         }
