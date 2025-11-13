@@ -259,7 +259,8 @@ spec:
                                 // 예상 형식: robot$library+jenkins
                                 // 실제 Jenkins credentials에 저장된 값이 정확한지 확인 필요
                                 
-                                // 방법 1: 직접 --password 옵션 사용
+                                // 방법 1: podman login with --password (직접 전달)
+                                echo "방법 1: --password 옵션으로 로그인 시도..."
                                 def loginResult = sh(
                                     script: """
                                         ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false 2>&1
@@ -269,7 +270,7 @@ spec:
                                 
                                 if (loginResult != 0) {
                                     // 방법 2: printf를 사용하여 특수문자 처리
-                                    echo "방법 1 실패, printf를 사용한 방법 시도 중..."
+                                    echo "방법 1 실패, 방법 2: printf + --password-stdin 시도 중..."
                                     def loginResult2 = sh(
                                         script: """
                                             printf '%s' "\$HARBOR_PASSWORD" | ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password-stdin --tls-verify=false 2>&1
@@ -278,7 +279,34 @@ spec:
                                     )
                                     
                                     if (loginResult2 != 0) {
-                                        error """
+                                        // 방법 3: 환경 변수를 사용한 로그인 (podman 특화)
+                                        echo "방법 2 실패, 방법 3: 환경 변수 사용 시도 중..."
+                                        def loginResult3 = sh(
+                                            script: """
+                                                export REGISTRY_AUTH_FILE=\${HOME}/.config/containers/auth.json
+                                                mkdir -p \$(dirname \$REGISTRY_AUTH_FILE)
+                                                ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false 2>&1
+                                            """,
+                                            returnStatus: true
+                                        )
+                                        
+                                        if (loginResult3 != 0) {
+                                            // 방법 4: curl을 사용한 Harbor API 직접 호출 테스트
+                                            echo "방법 3 실패, 방법 4: Harbor API 직접 호출 테스트..."
+                                            def apiTest = sh(
+                                                script: """
+                                                    curl -k -u "\$HARBOR_USER:\$HARBOR_PASSWORD" https://${harborHost}/api/v2.0/projects 2>&1 | head -10
+                                                """,
+                                                returnStatus: true
+                                            )
+                                            
+                                            if (apiTest == 0) {
+                                                echo "Harbor API 호출 성공! podman/docker login 문제일 수 있습니다."
+                                            } else {
+                                                echo "Harbor API 호출도 실패했습니다."
+                                            }
+                                            
+                                            error """
 Harbor 로그인 실패!
 
 가능한 원인:
@@ -289,16 +317,26 @@ Harbor 로그인 실패!
 
 2. Harbor robot 계정이 비활성화되었거나 권한이 변경되었을 수 있습니다.
 
-3. 다른 곳에서 작동하는 정확한 로그인 명령어를 확인해주세요.
+3. podman의 인증 방식이 docker와 다를 수 있습니다.
+
+4. 다른 곳에서 작동하는 정확한 로그인 명령어를 확인해주세요.
+   예: podman login harbor.thisisserver.com --username "..." --password "..." --tls-verify=false
 
 디버깅 정보:
 - 사용자명 길이: 21자 (예상과 일치)
 - 비밀번호 길이: 32자 (예상과 일치)
 - 네트워크 연결: 성공
+- 사용자명 첫/마지막 문자: r/s (예상과 일치)
+- 비밀번호 첫/마지막 문자: f/K (예상과 일치)
 """
+                                        } else {
+                                            echo "Harbor 레지스트리 로그인 성공! (방법 3)"
+                                        }
+                                    } else {
+                                        echo "Harbor 레지스트리 로그인 성공! (방법 2)"
                                     }
                                 } else {
-                                    echo "Harbor 레지스트리 로그인 성공!"
+                                    echo "Harbor 레지스트리 로그인 성공! (방법 1)"
                                 }
                             }
                         }
