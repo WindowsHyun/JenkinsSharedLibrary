@@ -278,7 +278,11 @@ Harbor API 호출 실패! 크리덴셜이 올바르지 않을 수 있습니다.
                                     AUTH_DIR2="/root/.config/containers"
                                     AUTH_FILE2="\${AUTH_DIR2}/auth.json"
                                     
-                                    # Base64 인코딩된 인증 정보 생성
+                                    # 사용자명과 비밀번호 확인 (디버깅)
+                                    echo "사용자명 확인: \$(echo -n "\$HARBOR_USER" | wc -c)자"
+                                    echo "비밀번호 확인: \$(echo -n "\$HARBOR_PASSWORD" | wc -c)자"
+                                    
+                                    # Base64 인코딩된 인증 정보 생성 (사용자명:비밀번호)
                                     AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
                                     
                                     # 인증 파일 생성 함수
@@ -287,22 +291,31 @@ Harbor API 호출 실패! 크리덴셜이 올바르지 않을 수 있습니다.
                                         local AUTH_DIR=\$(dirname "\$AUTH_FILE")
                                         mkdir -p "\$AUTH_DIR"
                                         
+                                        # JSON에서 특수문자 이스케이프 처리
+                                        # 사용자명과 비밀번호를 JSON 문자열로 안전하게 처리
+                                        USER_JSON=\$(echo "\$HARBOR_USER" | sed 's/\\\\/\\\\\\\\/g' | sed 's/"/\\\\"/g')
+                                        PASS_JSON=\$(echo "\$HARBOR_PASSWORD" | sed 's/\\\\/\\\\\\\\/g' | sed 's/"/\\\\"/g')
+                                        
                                         # podman 인증 파일 형식으로 생성 (JSON 형식)
-                                        # podman은 "auth" 필드만 사용하거나 "username"과 "password" 필드를 사용할 수 있음
-                                        cat > "\$AUTH_FILE" <<EOF
+                                        # username과 password 필드를 명시적으로 포함
+                                        cat > "\$AUTH_FILE" <<AUTH_EOF
 {
   "auths": {
     "${harborHost}": {
       "auth": "\${AUTH_B64}",
-      "username": "\$HARBOR_USER",
-      "password": "\$HARBOR_PASSWORD"
+      "username": "\${USER_JSON}",
+      "password": "\${PASS_JSON}"
     }
   }
 }
-EOF
+AUTH_EOF
                                         
                                         chmod 600 "\$AUTH_FILE"
                                         echo "인증 파일 생성 완료: \$AUTH_FILE"
+                                        
+                                        # 인증 파일 내용 확인 (민감 정보 제외)
+                                        echo "인증 파일 내용 확인 (username/password 값 제외):"
+                                        cat "\$AUTH_FILE" | sed 's/"username": "[^"]*"/"username": "***"/g' | sed 's/"password": "[^"]*"/"password": "***"/g' | sed 's/"auth": "[^"]*"/"auth": "***"/g'
                                     }
                                     
                                     # 여러 위치에 인증 파일 생성
@@ -368,9 +381,9 @@ EOF
                             // 이미지 빌드
                             sh "${dockerCmd} build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
                             
-                            // 이미지 푸시 (환경 변수와 함께)
+                            // 이미지 푸시 (로그인 단계에서 생성한 인증 파일 사용)
                             sh """
-                                # 인증 파일 경로 설정
+                                # 인증 파일 경로 설정 (로그인 단계에서 생성한 파일 사용)
                                 AUTH_FILE1="\${HOME}/.config/containers/auth.json"
                                 AUTH_FILE2="/root/.config/containers/auth.json"
                                 
@@ -380,6 +393,7 @@ EOF
                                     export REGISTRY_AUTH_FILE="\${AUTH_FILE2}"
                                 else
                                     echo "오류: 인증 파일을 찾을 수 없습니다!"
+                                    echo "로그인 단계에서 인증 파일이 생성되었는지 확인하세요."
                                     exit 1
                                 fi
                                 
