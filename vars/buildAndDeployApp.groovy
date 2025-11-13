@@ -288,13 +288,18 @@ Harbor API 호출 실패! 크리덴셜이 올바르지 않을 수 있습니다.
                                         mkdir -p "\$AUTH_DIR"
                                         
                                         # podman 인증 파일 형식으로 생성 (JSON 형식)
-                                        echo '{' > "\$AUTH_FILE"
-                                        echo '  "auths": {' >> "\$AUTH_FILE"
-                                        echo '    "'${harborHost}'": {' >> "\$AUTH_FILE"
-                                        echo '      "auth": "'"\${AUTH_B64}"'"' >> "\$AUTH_FILE"
-                                        echo '    }' >> "\$AUTH_FILE"
-                                        echo '  }' >> "\$AUTH_FILE"
-                                        echo '}' >> "\$AUTH_FILE"
+                                        # podman은 "auth" 필드만 사용하거나 "username"과 "password" 필드를 사용할 수 있음
+                                        cat > "\$AUTH_FILE" <<EOF
+{
+  "auths": {
+    "${harborHost}": {
+      "auth": "\${AUTH_B64}",
+      "username": "\$HARBOR_USER",
+      "password": "\$HARBOR_PASSWORD"
+    }
+  }
+}
+EOF
                                         
                                         chmod 600 "\$AUTH_FILE"
                                         echo "인증 파일 생성 완료: \$AUTH_FILE"
@@ -365,12 +370,31 @@ Harbor API 호출 실패! 크리덴셜이 올바르지 않을 수 있습니다.
                             
                             // 이미지 푸시 (환경 변수와 함께)
                             sh """
-                                export REGISTRY_AUTH_FILE="\${HOME}/.config/containers/auth.json"
-                                if [ ! -f "\${REGISTRY_AUTH_FILE}" ]; then
-                                    export REGISTRY_AUTH_FILE="/root/.config/containers/auth.json"
+                                # 인증 파일 경로 설정
+                                AUTH_FILE1="\${HOME}/.config/containers/auth.json"
+                                AUTH_FILE2="/root/.config/containers/auth.json"
+                                
+                                if [ -f "\${AUTH_FILE1}" ]; then
+                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE1}"
+                                elif [ -f "\${AUTH_FILE2}" ]; then
+                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE2}"
+                                else
+                                    echo "오류: 인증 파일을 찾을 수 없습니다!"
+                                    exit 1
                                 fi
                                 
                                 echo "인증 파일 경로: \${REGISTRY_AUTH_FILE}"
+                                echo "인증 파일 존재 확인: \$(test -f "\${REGISTRY_AUTH_FILE}" && echo '예' || echo '아니오')"
+                                
+                                # podman이 인증 파일을 읽을 수 있도록 XDG 환경 변수도 설정
+                                export XDG_CONFIG_HOME="\$(dirname \$(dirname "\${REGISTRY_AUTH_FILE}"))"
+                                export XDG_RUNTIME_DIR="\${XDG_CONFIG_HOME}"
+                                
+                                echo "환경 변수:"
+                                echo "  REGISTRY_AUTH_FILE=\${REGISTRY_AUTH_FILE}"
+                                echo "  XDG_CONFIG_HOME=\${XDG_CONFIG_HOME}"
+                                
+                                # push 실행
                                 ${dockerCmd} push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}
                             """
                             
