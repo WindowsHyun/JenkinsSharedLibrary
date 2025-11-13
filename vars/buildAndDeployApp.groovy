@@ -206,32 +206,8 @@ spec:
                 steps {
                     container('jnlp') {
                         script {
-                            echo "Harbor 레지스트리에 로그인 중..."
+                            echo "Harbor 레지스트리 인증 설정 중..."
                             def harborHost = "harbor.thisisserver.com"
-                            def harborIp = config.harborHostAliasIp
-                            
-                            // 헤어핀 문제 해결: 컨테이너 내부 /etc/hosts 확인
-                            echo "Harbor 호스트 설정 확인 중..."
-                            sh """
-                                echo "현재 /etc/hosts의 harbor.thisisserver.com 설정:"
-                                grep harbor.thisisserver.com /etc/hosts || echo "harbor.thisisserver.com이 /etc/hosts에 없습니다"
-                                
-                                # /etc/hosts 확인 (Pod의 hostAliases가 이미 설정되어 있음)
-                                if ! grep -q "${harborIp}.*harbor.thisisserver.com" /etc/hosts; then
-                                    echo "경고: /etc/hosts에 올바른 Harbor IP가 설정되지 않았습니다"
-                                    echo "Pod의 hostAliases 설정을 확인하세요"
-                                else
-                                    echo "/etc/hosts 설정이 올바릅니다"
-                                fi
-                                
-                                # 네트워크 연결 테스트
-                                echo "Harbor 서버 연결 테스트 중..."
-                                echo "Harbor IP로 직접 연결 테스트: ${harborIp}"
-                                ping -c 1 ${harborIp} || echo "ping 실패 (정상일 수 있음)"
-                                echo "Harbor 호스트명으로 연결 테스트: ${harborHost}"
-                                ping -c 1 ${harborHost} || echo "ping 실패 (정상일 수 있음)"
-                                curl -k -I https://${harborHost} 2>&1 | head -5 || echo "HTTPS 연결 테스트 완료"
-                            """
                             
                             // docker 또는 podman 중 사용 가능한 것을 확인
                             def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "none"').trim()
@@ -249,95 +225,52 @@ spec:
                                 echo "Harbor API로 크리덴셜 검증 중..."
                                 def apiTest = sh(
                                     script: """
-                                        curl -k -u "\$HARBOR_USER:\$HARBOR_PASSWORD" https://${harborHost}/api/v2.0/projects 2>&1 | head -10
+                                        curl -k -u "\$HARBOR_USER:\$HARBOR_PASSWORD" https://${harborHost}/api/v2.0/projects 2>&1 | head -5
                                     """,
                                     returnStatus: true
                                 )
                                 
                                 if (apiTest != 0) {
-                                    error """
-Harbor API 호출 실패! 크리덴셜이 올바르지 않을 수 있습니다.
-
-가능한 원인:
-1. Jenkins credentials에 저장된 값이 잘못되었을 수 있습니다.
-   - HARBOR_USER credential ID 확인 필요
-   - HARBOR_PASSWORD credential ID 확인 필요
-
-2. Harbor robot 계정이 비활성화되었거나 권한이 변경되었을 수 있습니다.
-"""
+                                    error "Harbor API 호출 실패! 크리덴셜을 확인하세요."
                                 }
                                 
-                                echo "Harbor API 호출 성공! 크리덴셜이 올바릅니다."
-                                echo "podman 인증 파일을 생성합니다..."
+                                echo "Harbor API 호출 성공! 인증 파일을 생성합니다..."
                                 
-                                // podman 인증 파일 직접 생성 (여러 위치에 생성하여 호환성 확보)
+                                // podman 인증 파일 생성 (간단하게)
                                 sh """
-                                    # podman 인증 파일 경로 설정 (여러 위치)
-                                    AUTH_DIR1="\${HOME}/.config/containers"
-                                    AUTH_FILE1="\${AUTH_DIR1}/auth.json"
-                                    AUTH_DIR2="/root/.config/containers"
-                                    AUTH_FILE2="\${AUTH_DIR2}/auth.json"
+                                    # 인증 파일 경로
+                                    AUTH_DIR="/root/.config/containers"
+                                    AUTH_FILE="\${AUTH_DIR}/auth.json"
+                                    mkdir -p "\${AUTH_DIR}"
                                     
-                                    # 사용자명과 비밀번호 확인 (디버깅)
-                                    echo "사용자명 확인: \$(echo -n "\$HARBOR_USER" | wc -c)자"
-                                    echo "비밀번호 확인: \$(echo -n "\$HARBOR_PASSWORD" | wc -c)자"
-                                    
-                                    # Base64 인코딩된 인증 정보 생성 (사용자명:비밀번호)
+                                    # Base64 인코딩
                                     AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
                                     
-                                    # 인증 파일 생성 함수
-                                    create_auth_file() {
-                                        local AUTH_FILE=\$1
-                                        local AUTH_DIR=\$(dirname "\$AUTH_FILE")
-                                        mkdir -p "\$AUTH_DIR"
-                                        
-                                        # JSON에서 특수문자 이스케이프 처리
-                                        # 사용자명과 비밀번호를 JSON 문자열로 안전하게 처리
-                                        USER_JSON=\$(echo "\$HARBOR_USER" | sed 's/\\\\/\\\\\\\\/g' | sed 's/"/\\\\"/g')
-                                        PASS_JSON=\$(echo "\$HARBOR_PASSWORD" | sed 's/\\\\/\\\\\\\\/g' | sed 's/"/\\\\"/g')
-                                        
-                                        # podman 인증 파일 형식으로 생성 (JSON 형식)
-                                        # username과 password 필드를 명시적으로 포함
-                                        cat > "\$AUTH_FILE" <<AUTH_EOF
+                                    # jq를 사용하여 안전하게 JSON 생성
+                                    if command -v jq >/dev/null 2>&1; then
+                                        jq -n \
+                                            --arg host "${harborHost}" \
+                                            --arg auth "\${AUTH_B64}" \
+                                            --arg user "\$HARBOR_USER" \
+                                            --arg pass "\$HARBOR_PASSWORD" \
+                                            '{auths: {($host): {auth: $auth, username: $user, password: $pass}}}' > "\${AUTH_FILE}"
+                                    else
+                                        # jq가 없으면 직접 생성
+                                        cat > "\${AUTH_FILE}" <<EOF
 {
   "auths": {
     "${harborHost}": {
       "auth": "\${AUTH_B64}",
-      "username": "\${USER_JSON}",
-      "password": "\${PASS_JSON}"
+      "username": "\$HARBOR_USER",
+      "password": "\$HARBOR_PASSWORD"
     }
   }
 }
-AUTH_EOF
-                                        
-                                        chmod 600 "\$AUTH_FILE"
-                                        echo "인증 파일 생성 완료: \$AUTH_FILE"
-                                        
-                                        # 인증 파일 내용 확인 (민감 정보 제외)
-                                        echo "인증 파일 내용 확인 (username/password 값 제외):"
-                                        cat "\$AUTH_FILE" | sed 's/"username": "[^"]*"/"username": "***"/g' | sed 's/"password": "[^"]*"/"password": "***"/g' | sed 's/"auth": "[^"]*"/"auth": "***"/g'
-                                    }
-                                    
-                                    # 여러 위치에 인증 파일 생성
-                                    create_auth_file "\${AUTH_FILE1}"
-                                    create_auth_file "\${AUTH_FILE2}"
-                                    
-                                    # 환경 변수 설정 (podman이 인증 파일을 찾을 수 있도록)
-                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE1}"
-                                    export XDG_RUNTIME_DIR="\${HOME}/.config"
-                                    
-                                    # 인증 파일이 올바르게 생성되었는지 확인
-                                    if [ -f "\${AUTH_FILE1}" ] && [ -f "\${AUTH_FILE2}" ]; then
-                                        echo "인증 파일 생성 성공!"
-                                        echo "인증 파일 위치:"
-                                        echo "  - \${AUTH_FILE1}"
-                                        echo "  - \${AUTH_FILE2}"
-                                        echo "환경 변수 설정:"
-                                        echo "  - REGISTRY_AUTH_FILE=\${AUTH_FILE1}"
-                                    else
-                                        echo "인증 파일 생성 실패!"
-                                        exit 1
+EOF
                                     fi
+                                    
+                                    chmod 600 "\${AUTH_FILE}"
+                                    echo "인증 파일 생성 완료: \${AUTH_FILE}"
                                 """
                                 
                                 echo "Harbor 레지스트리 인증 설정 완료!"
@@ -354,59 +287,25 @@ AUTH_EOF
                             echo "Docker 이미지 빌드 및 푸시 시작..."
                             def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "docker"').trim()
                             
-                            // 인증 파일 확인 및 환경 변수 설정
-                            sh """
-                                # 인증 파일 경로 확인
-                                AUTH_FILE1="\${HOME}/.config/containers/auth.json"
-                                AUTH_FILE2="/root/.config/containers/auth.json"
-                                
-                                # 인증 파일이 존재하는지 확인
-                                if [ -f "\${AUTH_FILE1}" ]; then
-                                    echo "인증 파일 확인: \${AUTH_FILE1}"
-                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE1}"
-                                elif [ -f "\${AUTH_FILE2}" ]; then
-                                    echo "인증 파일 확인: \${AUTH_FILE2}"
-                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE2}"
-                                else
-                                    echo "경고: 인증 파일을 찾을 수 없습니다!"
-                                    echo "인증 파일 위치 확인:"
-                                    ls -la \${HOME}/.config/containers/ 2>/dev/null || echo "  \${HOME}/.config/containers/ 없음"
-                                    ls -la /root/.config/containers/ 2>/dev/null || echo "  /root/.config/containers/ 없음"
-                                fi
-                                
-                                # 환경 변수 출력 (디버깅)
-                                echo "REGISTRY_AUTH_FILE=\${REGISTRY_AUTH_FILE}"
-                            """
-                            
                             // 이미지 빌드
                             sh "${dockerCmd} build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
                             
-                            // 이미지 푸시 (로그인 단계에서 생성한 인증 파일 사용)
+                            // 이미지 푸시 (인증 파일 사용)
                             sh """
-                                # 인증 파일 경로 설정 (로그인 단계에서 생성한 파일 사용)
-                                AUTH_FILE1="\${HOME}/.config/containers/auth.json"
-                                AUTH_FILE2="/root/.config/containers/auth.json"
+                                # 인증 파일 경로
+                                AUTH_FILE="/root/.config/containers/auth.json"
                                 
-                                if [ -f "\${AUTH_FILE1}" ]; then
-                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE1}"
-                                elif [ -f "\${AUTH_FILE2}" ]; then
-                                    export REGISTRY_AUTH_FILE="\${AUTH_FILE2}"
-                                else
-                                    echo "오류: 인증 파일을 찾을 수 없습니다!"
-                                    echo "로그인 단계에서 인증 파일이 생성되었는지 확인하세요."
+                                if [ ! -f "\${AUTH_FILE}" ]; then
+                                    echo "오류: 인증 파일을 찾을 수 없습니다: \${AUTH_FILE}"
                                     exit 1
                                 fi
                                 
-                                echo "인증 파일 경로: \${REGISTRY_AUTH_FILE}"
-                                echo "인증 파일 존재 확인: \$(test -f "\${REGISTRY_AUTH_FILE}" && echo '예' || echo '아니오')"
+                                # 환경 변수 설정
+                                export REGISTRY_AUTH_FILE="\${AUTH_FILE}"
+                                export XDG_CONFIG_HOME="/root/.config"
+                                export XDG_RUNTIME_DIR="/root/.config"
                                 
-                                # podman이 인증 파일을 읽을 수 있도록 XDG 환경 변수도 설정
-                                export XDG_CONFIG_HOME="\$(dirname \$(dirname "\${REGISTRY_AUTH_FILE}"))"
-                                export XDG_RUNTIME_DIR="\${XDG_CONFIG_HOME}"
-                                
-                                echo "환경 변수:"
-                                echo "  REGISTRY_AUTH_FILE=\${REGISTRY_AUTH_FILE}"
-                                echo "  XDG_CONFIG_HOME=\${XDG_CONFIG_HOME}"
+                                echo "인증 파일 사용: \${AUTH_FILE}"
                                 
                                 # push 실행
                                 ${dockerCmd} push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}
