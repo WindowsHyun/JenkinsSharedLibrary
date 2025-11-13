@@ -208,6 +208,29 @@ spec:
                         script {
                             echo "Harbor 레지스트리에 로그인 중..."
                             def harborHost = "harbor.thisisserver.com"
+                            def harborIp = config.harborHostAliasIp
+                            
+                            // 헤어핀 문제 해결: 컨테이너 내부 /etc/hosts 확인 및 수정
+                            echo "Harbor 호스트 설정 확인 중..."
+                            sh """
+                                echo "현재 /etc/hosts의 harbor.thisisserver.com 설정:"
+                                grep harbor.thisisserver.com /etc/hosts || echo "harbor.thisisserver.com이 /etc/hosts에 없습니다"
+                                
+                                # /etc/hosts에 Harbor IP 추가 (이미 있으면 업데이트)
+                                if grep -q "harbor.thisisserver.com" /etc/hosts; then
+                                    echo "기존 harbor.thisisserver.com 항목을 업데이트합니다"
+                                    sed -i '/harbor.thisisserver.com/d' /etc/hosts
+                                fi
+                                echo "${harborIp} harbor.thisisserver.com" >> /etc/hosts
+                                
+                                echo "업데이트된 /etc/hosts의 harbor.thisisserver.com 설정:"
+                                grep harbor.thisisserver.com /etc/hosts
+                                
+                                # 네트워크 연결 테스트
+                                echo "Harbor 서버 연결 테스트 중..."
+                                ping -c 2 ${harborHost} || echo "ping 실패 (정상일 수 있음)"
+                                curl -k -I https://${harborHost} || echo "HTTPS 연결 테스트 완료"
+                            """
                             
                             // docker 또는 podman 중 사용 가능한 것을 확인
                             def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "none"').trim()
@@ -221,14 +244,30 @@ spec:
                                 string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
                                 string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
                             ]) {
-                                // podman/docker login - 환경 변수를 직접 사용하여 안전하게 전달
-                                // podman의 경우 --password-stdin이 제대로 작동하지 않을 수 있으므로 직접 전달
+                                // 디버깅: 사용자명 길이 확인 (실제 값은 마스킹됨)
                                 sh """
-                                    ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false
+                                    echo "HARBOR_USER 길이: \$(echo -n "\$HARBOR_USER" | wc -c)"
+                                    echo "HARBOR_PASSWORD 길이: \$(echo -n "\$HARBOR_PASSWORD" | wc -c)"
                                 """
+                                
+                                // 방법 1: 직접 --password 옵션 사용
+                                def loginResult = sh(
+                                    script: """
+                                        ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password "\$HARBOR_PASSWORD" --tls-verify=false 2>&1
+                                    """,
+                                    returnStatus: true
+                                )
+                                
+                                if (loginResult != 0) {
+                                    // 방법 2: printf를 사용하여 특수문자 처리
+                                    echo "방법 1 실패, printf를 사용한 방법 시도 중..."
+                                    sh """
+                                        printf '%s' "\$HARBOR_PASSWORD" | ${dockerCmd} login ${harborHost} --username "\$HARBOR_USER" --password-stdin --tls-verify=false
+                                    """
+                                } else {
+                                    echo "Harbor 레지스트리 로그인 성공!"
+                                }
                             }
-                            
-                            echo "Harbor 레지스트리 로그인 성공!"
                         }
                     }
                 }
