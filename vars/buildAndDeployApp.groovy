@@ -204,80 +204,22 @@ spec:
 
             stage('Login to Harbor Registry') {
                 steps {
-                    container('jnlp') {
+                    container('dind') {
                         script {
                             echo "Harbor 레지스트리 인증 파일 생성 중..."
                             withCredentials([
                                 string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
                                 string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
                             ]) {
-                                sh '''
-                                    mkdir -p $HOME/.docker
-                                    chmod 700 $HOME/.docker
-                                '''
-                                sh '''
-                                    # username:password를 Base64로 인코딩
-                                    AUTH_STRING=$(echo -n "${HARBOR_USER}:${HARBOR_PASSWORD}" | base64 -w 0)
-                                    echo "AUTH_STRING: ${AUTH_STRING}"
-                                    # config.json 파일 생성
-                                    cat > $HOME/.docker/config.json <<EOF
-{
-  "auths": {
-    "harbor.thisisserver.com": {
-      "auth": "cm9ib3QkbGlicmFyeStqZW5raW5zOmZpVENiWGs0b01YNGFqd1A5TERGQ05QVjdYRFJkR1VL"
-    }
-  }
-}
-EOF
-                                '''
-                                
-                                // 파일 권한 설정
-                                sh '''
-                                    chmod 600 $HOME/.docker/config.json
-                                '''
-                                
-                                // 생성된 파일 확인 (디버깅용, 민감정보 제외)
-                                sh '''
-                                    echo "인증 파일 생성 완료:"
-                                    ls -la $HOME/.docker/config.json
-                                '''
-                                
-                                echo "Harbor 레지스트리 인증 파일 생성 완료!"
-                            }
-                        }
-                    }
-                }
-            }
+                                sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} harbor.thisisserver.com"
+                                echo "Docker logged in to Harbor Registry"
 
-            stage('Build and Push Docker Image') {
-                steps {
-                    container('jnlp') {
-                        script {
-                            echo "Docker 이미지 빌드 및 푸시 시작..."
-                            def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "docker"').trim()
-                            
-                            // 이미지 빌드
-                            sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
-                            
-                            // 이미지 푸시 (jenkins 사용자의 인증 파일 사용)
-                            sh """
-                                # jenkins 사용자의 인증 파일 경로
-                                AUTH_FILE="\$HOME/.docker/config.json"
+                                sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
+                                echo "Docker built: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
                                 
-                                if [ ! -f "\${AUTH_FILE}" ]; then
-                                    echo "오류: 인증 파일을 찾을 수 없습니다: \${AUTH_FILE}"
-                                    echo "현재 사용자: \$(whoami)"
-                                    echo "홈 디렉토리: \$HOME"
-                                    exit 1
-                                fi
-                                
-                                echo "인증 파일 사용: \${AUTH_FILE}"
-                                
-                                # push 실행 (Docker는 자동으로 ~/.docker/config.json 사용)
-                                ${dockerCmd} push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}
-                            """
-                            
-                            echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                                sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                                echo "Docker pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                            }
                         }
                     }
                 }
