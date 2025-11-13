@@ -61,24 +61,6 @@ spec:
     - "harbor.thisisserver.com"
   imagePullSecrets:
   - name: ${config.harborImagePullSecret}
-  containers:
-  - name: dind
-    image: docker:dind-rootless
-    securityContext:
-      privileged: true
-    env:
-    - name: DOCKER_TLS_CERTDIR
-      value: ""
-    - name: DOCKER_DRIVER
-      value: overlay2
-    - name: DOCKER_HOST
-      value: tcp://localhost:2375
-    volumeMounts:
-    - name: workspace-volume
-      mountPath: /home/jenkins/agent
-  volumes:
-  - name: workspace-volume
-    emptyDir: {}
 """
             }
         }
@@ -222,7 +204,7 @@ spec:
 
             stage('Build and Push Docker Image') {
                 steps {
-                    container('dind') {
+                    container('jnlp') {
                         echo "Harbor 레지스트리에 로그인 중..."
                         withCredentials([usernamePassword(credentialsId: config.harborCredentialId, usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASSWORD')]) {
                             sh '''
