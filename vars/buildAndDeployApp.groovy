@@ -208,7 +208,7 @@ spec:
                 steps {
                     container('jnlp') {
                         echo "Harbor 레지스트리에 로그인 중..."
-                        sh "docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} harbor.thisisserver.com"
+                        sh "podman login harbor.thisisserver.com --username ${HARBOR_USER} --password ${HARBOR_PASSWORD}"
                         echo "Docker 이미지 빌드 및 푸시 시작..."
                         sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
                         sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
