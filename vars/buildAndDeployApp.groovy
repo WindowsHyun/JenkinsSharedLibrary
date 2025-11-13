@@ -204,13 +204,46 @@ spec:
                 }
             }
 
+            stage('Login to Harbor Registry') {
+                steps {
+                    container('jnlp') {
+                        script {
+                            echo "Harbor 레지스트리에 로그인 중..."
+                            def harborHost = "harbor.thisisserver.com"
+                            
+                            // docker 또는 podman 중 사용 가능한 것을 확인
+                            def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "none"').trim()
+                            
+                            if (dockerCmd == "none") {
+                                error "docker 또는 podman이 설치되어 있지 않습니다."
+                            }
+                            
+                            // 사용자명에 특수문자가 있으므로 인용부호로 감싸서 처리
+                            def username = "${env.HARBOR_USER}"
+                            def password = "${env.HARBOR_PASSWORD}"
+                            
+                            // docker/podman login 명령어 실행 (특수문자 처리를 위해 환경 변수 사용)
+                            sh """
+                                echo "\${HARBOR_PASSWORD}" | ${dockerCmd} login ${harborHost} --username "\${HARBOR_USER}" --password-stdin --tls-verify=false
+                            """
+                            
+                            echo "Harbor 레지스트리 로그인 성공!"
+                        }
+                    }
+                }
+            }
+
             stage('Build and Push Docker Image') {
                 steps {
                     container('jnlp') {
-                        echo "Docker 이미지 빌드 및 푸시 시작..."
-                        sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
-                        sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
-                        echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                        script {
+                            echo "Docker 이미지 빌드 및 푸시 시작..."
+                            def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "docker"').trim()
+                            
+                            sh "${dockerCmd} build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
+                            sh "${dockerCmd} push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                            echo "Docker Image pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                        }
                     }
                 }
             }
