@@ -208,7 +208,15 @@ spec:
                         echo "Harbor 레지스트리에 로그인 중..."
                         withCredentials([usernamePassword(credentialsId: config.harborCredentialId, usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASSWORD')]) {
                             sh '''
-                                printf '%s' "${HARBOR_PASSWORD}" | docker login harbor.thisisserver.com -u "${HARBOR_USER}" --password-stdin
+                                # 환경 변수 확인 (디버깅용 - 실제 사용 시 제거 가능)
+                                echo "Username length: ${#HARBOR_USER}"
+                                echo "Password length: ${#HARBOR_PASSWORD}"
+                    
+                                # 방법 1: echo -n 사용 (개행 없이 출력)
+                                echo -n "${HARBOR_PASSWORD}" | docker login harbor.thisisserver.com -u "${HARBOR_USER}" --password-stdin
+                    
+                                # 방법 2가 실패할 경우를 대비한 대안 (주석 처리)
+                                # docker login harbor.thisisserver.com -u "${HARBOR_USER}" -p "${HARBOR_PASSWORD}"
                             '''
                         }
                         echo "Docker 이미지 빌드 및 푸시 시작..."
