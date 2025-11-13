@@ -301,12 +301,47 @@ spec:
                                             )
                                             
                                             if (apiTest == 0) {
-                                                echo "Harbor API 호출 성공! podman/docker login 문제일 수 있습니다."
+                                                echo "Harbor API 호출 성공! 크리덴셜은 올바릅니다."
+                                                echo "podman login 명령어 문제로 보입니다. 인증 파일을 직접 생성합니다..."
+                                                
+                                                // 방법 5: podman 인증 파일 직접 생성 (Harbor API가 성공했으므로 크리덴셜은 정확함)
+                                                sh """
+                                                    # podman 인증 파일 경로 설정
+                                                    AUTH_DIR="\${HOME}/.config/containers"
+                                                    AUTH_FILE="\${AUTH_DIR}/auth.json"
+                                                    
+                                                    mkdir -p "\${AUTH_DIR}"
+                                                    
+                                                    # Base64 인코딩된 인증 정보 생성 (호환성을 위해 옵션 없이 사용)
+                                                    AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
+                                                    
+                                                    # podman 인증 파일 형식으로 생성 (JSON 형식)
+                                                    echo '{' > "\${AUTH_FILE}"
+                                                    echo '  "auths": {' >> "\${AUTH_FILE}"
+                                                    echo '    "'${harborHost}'": {' >> "\${AUTH_FILE}"
+                                                    echo '      "auth": "'"\${AUTH_B64}"'"' >> "\${AUTH_FILE}"
+                                                    echo '    }' >> "\${AUTH_FILE}"
+                                                    echo '  }' >> "\${AUTH_FILE}"
+                                                    echo '}' >> "\${AUTH_FILE}"
+                                                    
+                                                    chmod 600 "\${AUTH_FILE}"
+                                                    echo "인증 파일 생성 완료: \${AUTH_FILE}"
+                                                    
+                                                    # 인증 파일이 올바르게 생성되었는지 확인
+                                                    if [ -f "\${AUTH_FILE}" ]; then
+                                                        echo "인증 파일 생성 성공!"
+                                                        echo "인증 파일 내용 확인 (auth 값 제외):"
+                                                        cat "\${AUTH_FILE}" | sed 's/"auth": "[^"]*"/"auth": "***"/g'
+                                                    else
+                                                        echo "인증 파일 생성 실패!"
+                                                        exit 1
+                                                    fi
+                                                """
+                                                
+                                                echo "Harbor 레지스트리 인증 설정 완료! (방법 5: 인증 파일 직접 생성)"
                                             } else {
                                                 echo "Harbor API 호출도 실패했습니다."
-                                            }
-                                            
-                                            error """
+                                                error """
 Harbor 로그인 실패!
 
 가능한 원인:
@@ -328,7 +363,9 @@ Harbor 로그인 실패!
 - 네트워크 연결: 성공
 - 사용자명 첫/마지막 문자: r/s (예상과 일치)
 - 비밀번호 첫/마지막 문자: f/K (예상과 일치)
+- Harbor API 호출: 실패
 """
+                                            }
                                         } else {
                                             echo "Harbor 레지스트리 로그인 성공! (방법 3)"
                                         }
