@@ -246,28 +246,24 @@ spec:
                                     # Base64 인코딩
                                     AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
                                     
-                                    # jq를 사용하여 안전하게 JSON 생성
-                                    if command -v jq >/dev/null 2>&1; then
-                                        jq -n \
-                                            --arg host "${harborHost}" \
-                                            --arg auth "\${AUTH_B64}" \
-                                            --arg user "\$HARBOR_USER" \
-                                            --arg pass "\$HARBOR_PASSWORD" \
-                                            '{auths: {($host): {auth: $auth, username: $user, password: $pass}}}' > "\${AUTH_FILE}"
-                                    else
-                                        # jq가 없으면 직접 생성
-                                        cat > "\${AUTH_FILE}" <<EOF
+                                    # JSON 파일 직접 생성
+                                    cat > "\${AUTH_FILE}" <<'AUTH_EOF'
 {
   "auths": {
-    "${harborHost}": {
-      "auth": "\${AUTH_B64}",
-      "username": "\$HARBOR_USER",
-      "password": "\$HARBOR_PASSWORD"
+    "HARBOR_HOST_PLACEHOLDER": {
+      "auth": "AUTH_B64_PLACEHOLDER",
+      "username": "USER_PLACEHOLDER",
+      "password": "PASS_PLACEHOLDER"
     }
   }
 }
-EOF
-                                    fi
+AUTH_EOF
+                                    
+                                    # 플레이스홀더를 실제 값으로 교체
+                                    sed -i "s|HARBOR_HOST_PLACEHOLDER|${harborHost}|g" "\${AUTH_FILE}"
+                                    sed -i "s|AUTH_B64_PLACEHOLDER|\${AUTH_B64}|g" "\${AUTH_FILE}"
+                                    sed -i "s|USER_PLACEHOLDER|\$HARBOR_USER|g" "\${AUTH_FILE}"
+                                    sed -i "s|PASS_PLACEHOLDER|\$HARBOR_PASSWORD|g" "\${AUTH_FILE}"
                                     
                                     chmod 600 "\${AUTH_FILE}"
                                     echo "인증 파일 생성 완료: \${AUTH_FILE}"
