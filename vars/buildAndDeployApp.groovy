@@ -51,8 +51,8 @@ metadata:
   annotations:
     linkerd.io/inject: disabled
 spec:
-  # securityContext:
-    # runAsUser: 0
+  securityContext:
+    runAsUser: 0
     # runAsGroup: 1000
     # fsGroup: 1000
   hostAliases:
