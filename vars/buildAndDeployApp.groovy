@@ -206,70 +206,43 @@ spec:
                 steps {
                     container('jnlp') {
                         script {
-                            echo "Harbor 레지스트리 인증 설정 중..."
-                            def harborHost = "harbor.thisisserver.com"
-                            
-                            // docker 또는 podman 중 사용 가능한 것을 확인
-                            def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "none"').trim()
-                            
-                            if (dockerCmd == "none") {
-                                error "docker 또는 podman이 설치되어 있지 않습니다."
-                            }
-                            
-                            // withCredentials를 사용하여 크리덴셜 직접 바인딩
+                            echo "Harbor 레지스트리 인증 파일 생성 중..."
                             withCredentials([
                                 string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
                                 string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
                             ]) {
-                                // Harbor API로 크리덴셜 검증
-                                echo "Harbor API로 크리덴셜 검증 중..."
-                                def apiTest = sh(
-                                    script: """
-                                        curl -k -u "\$HARBOR_USER:\$HARBOR_PASSWORD" https://${harborHost}/api/v2.0/projects 2>&1 | head -5
-                                    """,
-                                    returnStatus: true
-                                )
-                                
-                                if (apiTest != 0) {
-                                    error "Harbor API 호출 실패! 크리덴셜을 확인하세요."
-                                }
-                                
-                                echo "Harbor API 호출 성공! 인증 파일을 생성합니다..."
-                                
-                                // podman 인증 파일 생성 (간단하게)
-                                sh """
-                                    # 인증 파일 경로
-                                    AUTH_DIR="/root/.config/containers"
-                                    AUTH_FILE="\${AUTH_DIR}/auth.json"
-                                    mkdir -p "\${AUTH_DIR}"
-                                    
-                                    # Base64 인코딩
-                                    AUTH_B64=\$(echo -n "\$HARBOR_USER:\$HARBOR_PASSWORD" | base64 | tr -d '\n')
-                                    
-                                    # JSON 파일 직접 생성
-                                    cat > "\${AUTH_FILE}" <<'AUTH_EOF'
+                                sh '''
+                                    mkdir -p $HOME/.docker
+                                    chmod 700 $HOME/.docker
+                                '''
+                                sh '''
+                                    # username:password를 Base64로 인코딩
+                                    AUTH_STRING=$(echo -n "${HARBOR_USER}:${HARBOR_PASSWORD}" | base64 -w 0)
+                                    echo "AUTH_STRING: ${AUTH_STRING}"
+                                    # config.json 파일 생성
+                                    cat > $HOME/.docker/config.json <<EOF
 {
   "auths": {
-    "HARBOR_HOST_PLACEHOLDER": {
-      "auth": "AUTH_B64_PLACEHOLDER",
-      "username": "USER_PLACEHOLDER",
-      "password": "PASS_PLACEHOLDER"
+    "harbor.thisisserver.com": {
+      "auth": "cm9ib3QkbGlicmFyeStqZW5raW5zOmZpVENiWGs0b01YNGFqd1A5TERGQ05QVjdYRFJkR1VL"
     }
   }
 }
-AUTH_EOF
-                                    
-                                    # 플레이스홀더를 실제 값으로 교체
-                                    sed -i "s|HARBOR_HOST_PLACEHOLDER|${harborHost}|g" "\${AUTH_FILE}"
-                                    sed -i "s|AUTH_B64_PLACEHOLDER|\${AUTH_B64}|g" "\${AUTH_FILE}"
-                                    sed -i "s|USER_PLACEHOLDER|\$HARBOR_USER|g" "\${AUTH_FILE}"
-                                    sed -i "s|PASS_PLACEHOLDER|\$HARBOR_PASSWORD|g" "\${AUTH_FILE}"
-                                    
-                                    chmod 600 "\${AUTH_FILE}"
-                                    echo "인증 파일 생성 완료: \${AUTH_FILE}"
-                                """
+EOF
+                                '''
                                 
-                                echo "Harbor 레지스트리 인증 설정 완료!"
+                                // 파일 권한 설정
+                                sh '''
+                                    chmod 600 $HOME/.docker/config.json
+                                '''
+                                
+                                // 생성된 파일 확인 (디버깅용, 민감정보 제외)
+                                sh '''
+                                    echo "인증 파일 생성 완료:"
+                                    ls -la $HOME/.docker/config.json
+                                '''
+                                
+                                echo "Harbor 레지스트리 인증 파일 생성 완료!"
                             }
                         }
                     }
@@ -284,26 +257,23 @@ AUTH_EOF
                             def dockerCmd = sh(returnStdout: true, script: 'which docker || which podman || echo "docker"').trim()
                             
                             // 이미지 빌드
-                            sh "${dockerCmd} build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
+                            sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
                             
-                            // 이미지 푸시 (인증 파일 사용)
+                            // 이미지 푸시 (jenkins 사용자의 인증 파일 사용)
                             sh """
-                                # 인증 파일 경로
-                                AUTH_FILE="/root/.config/containers/auth.json"
+                                # jenkins 사용자의 인증 파일 경로
+                                AUTH_FILE="\$HOME/.docker/config.json"
                                 
                                 if [ ! -f "\${AUTH_FILE}" ]; then
                                     echo "오류: 인증 파일을 찾을 수 없습니다: \${AUTH_FILE}"
+                                    echo "현재 사용자: \$(whoami)"
+                                    echo "홈 디렉토리: \$HOME"
                                     exit 1
                                 fi
                                 
-                                # 환경 변수 설정
-                                export REGISTRY_AUTH_FILE="\${AUTH_FILE}"
-                                export XDG_CONFIG_HOME="/root/.config"
-                                export XDG_RUNTIME_DIR="/root/.config"
-                                
                                 echo "인증 파일 사용: \${AUTH_FILE}"
                                 
-                                # push 실행
+                                # push 실행 (Docker는 자동으로 ~/.docker/config.json 사용)
                                 ${dockerCmd} push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}
                             """
                             
