@@ -51,10 +51,10 @@ metadata:
   annotations:
     linkerd.io/inject: disabled
 spec:
-  securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
-    fsGroup: 1000
+  # securityContext:
+    # runAsUser: 0
+    # runAsGroup: 1000
+    # fsGroup: 1000
   hostAliases:
   - ip: "${config.harborHostAliasIp}"
     hostnames:
