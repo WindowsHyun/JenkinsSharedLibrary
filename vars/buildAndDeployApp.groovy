@@ -19,12 +19,10 @@ def call(Map config) {
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
     config.deploymentStrategy = config.deploymentStrategy ?: 'standard'
-    config.enableSonarQube = config.get('enableSonarQube', false) 
-    config.sonarqubeServer = config.get('sonarqubeServer', 'JenkinsSonarqube') 
-    config.sonarqubeScanner = config.get('sonarqubeScanner', 'JenkinsSonarqube')
     config.harborCredentialId = config.harborCredentialId ?: 'harbor'
     config.harborHostAliasIp = config.harborHostAliasIp ?: '192.168.0.201'
     config.harborImagePullSecret = config.harborImagePullSecret ?: 'harbor-registry-secret' // Harbor 이미지 pull을 위한 Kubernetes Secret 이름
+    config.deployToK8s = config.get('deployToK8s', true) // Kubernetes 배포 여부 (기본값: true)
 
     // 파이프라인에서 사용할 변수 정의
     def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
@@ -53,8 +51,6 @@ metadata:
 spec:
   securityContext:
     runAsUser: 0
-    # runAsGroup: 1000
-    # fsGroup: 1000
   hostAliases:
   - ip: "${config.harborHostAliasIp}"
     hostnames:
@@ -161,46 +157,7 @@ spec:
                 }
             }
 
-            stage('SonarQube Static Analysis') {
-                when {
-                    expression { return config.enableSonarQube }
-                }
-                steps {
-                    script {
-                        echo "SonarQube 분석을 시작합니다..."
-                        def sonarScannerHome = tool name: config.sonarqubeScanner, type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                        container('jnlp') {
-                            withSonarQubeEnv(config.sonarqubeServer) {
-                                def sonarParams = [
-                                    "-Dsonar.projectKey=${config.appName}",
-                                    "-Dsonar.projectName=${config.appName}",
-                                    "-Dsonar.sources=.",
-                                    "-Dsonar.host.url=${SONAR_HOST_URL}",
-                                    "-Dsonar.token=${SONAR_AUTH_TOKEN}"
-                                ]
 
-                                if (config.buildType == 'go') {
-                                    if (fileExists('coverage.out')) {
-                                        sonarParams.add("-Dsonar.go.coverage.reportPaths=coverage.out")
-                                    }
-                                } else if (config.buildType == 'npm' || config.buildType == 'nextjs') {
-                                    if (fileExists('coverage/lcov.info')) {
-                                        sonarParams.add("-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info")
-                                    }
-                                }
-                                sh "${sonarScannerHome}/bin/sonar-scanner ${sonarParams.join(' ')}"
-                            }
-                        }
-                    }
-                }
-            }
-
-            stage('Verify Build Artifacts') {
-                steps {
-                    echo "Verifying build artifacts..."
-                    sh 'ls -lah' 
-                }
-            }
 
             stage('Login to Harbor Registry') {
                 steps {
@@ -226,6 +183,9 @@ spec:
             }
 
             stage('Update Kustomize Image Tag') {
+                when {
+                    expression { return config.deployToK8s }
+                }
                 steps {
                     script {
                         echo "Kubernetes configs 저장소 체크아웃 시작: ${config.k8sConfigsRepoUrl} (${config.k8sConfigsBranch} 브랜치)"
