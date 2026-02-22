@@ -1,13 +1,8 @@
 def call(Map config) {
-    // 필수 파라미터 검사
-    if (!config.appName) error "appName 파라미터는 필수입니다."
     if (!config.repoUrl) error "repoUrl 파라미터는 필수입니다."
     if (!config.repoBranch) error "repoBranch 파라미터는 필수입니다."
-    if (!config.buildType) error "buildType 파라미터는 필수입니다 (예: 'go', 'npm', 'nextjs', 'docker-only')."
 
-    // 기본값 설정
     config.dockerRegistry = config.dockerRegistry ?: 'harbor.thisisserver.com/library'
-    config.dockerfilePath = config.dockerfilePath ?: 'Dockerfile' // Dockerfile 경로를 설정할 수 있도록 추가
     config.k8sConfigsRepoUrl = config.k8sConfigsRepoUrl ?: 'git@github.com:WindowsHyun/kubernetes-configs.git'
     config.k8sConfigsBranch = config.k8sConfigsBranch ?: 'develop'
     config.k8sKustomizePathPrefix = config.k8sKustomizePathPrefix ?: 'apps/dev'
@@ -18,22 +13,36 @@ def call(Map config) {
     config.kubernetesServiceAccount = config.kubernetesServiceAccount ?: 'jenkins-admin'
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
-    config.deploymentStrategy = config.deploymentStrategy ?: 'standard'
     config.harborCredentialId = config.harborCredentialId ?: 'harbor'
-    config.harborHostAliasIp = config.harborHostAliasIp ?: '192.168.0.201'
-    config.harborImagePullSecret = config.harborImagePullSecret ?: 'harbor-registry-secret' // Harbor 이미지 pull을 위한 Kubernetes Secret 이름
-    config.deployToK8s = config.get('deployToK8s', true) // Kubernetes 배포 여부 (기본값: true)
+    config.deployToK8s = config.get('deployToK8s', true)
 
-    // 파이프라인에서 사용할 변수 정의
-    def dockerImageName = "${config.dockerRegistry}/${config.appName.toLowerCase()}"
-    def targetAppName = config.appName.toLowerCase()
-    if (config.deploymentStrategy == 'blue-green') {
-        targetAppName = "${targetAppName}/green"
-        echo "Blue/Green 배포 전략이 감지되었습니다. Green 환경에 배포합니다. Target: ${targetAppName}"
+    def services = config.services
+    if (!services) {
+        if (!config.appName) error "appName 파라미터는 필수입니다."
+        if (!config.buildType) error "buildType 파라미터는 필수입니다."
+
+        services = [[
+            name: config.appName,
+            buildType: config.buildType,
+            dockerfilePath: config.dockerfilePath ?: 'Dockerfile',
+            buildContext: config.buildContext ?: '.',
+            buildWorkdir: config.buildWorkdir ?: '.',
+            deployToK8s: config.get('deployToK8s', true),
+            k8sAppName: (config.appName ?: '').toLowerCase()
+        ]]
     }
-    def k8sKustomizePath = "${config.k8sKustomizePathPrefix}/${targetAppName}/kustomization.yaml"
-    def gitReferenceRepoName = config.repoUrl.split('/')[-1].replace('.git', '')
-    def gitReferenceRepo = "/git-reference-repo/${gitReferenceRepoName}.git"
+
+    services.each { svc ->
+        if (!svc.name) error "services[].name 파라미터는 필수입니다."
+        if (!svc.buildType) error "services[${svc.name}].buildType 파라미터는 필수입니다."
+
+        svc.dockerfilePath = svc.dockerfilePath ?: 'Dockerfile'
+        svc.buildContext = svc.buildContext ?: '.'
+        svc.buildWorkdir = svc.buildWorkdir ?: '.'
+        svc.deployToK8s = svc.containsKey('deployToK8s') ? svc.deployToK8s : config.deployToK8s
+        svc.k8sAppName = svc.k8sAppName ?: svc.name.toLowerCase()
+        svc.imageRepo = "${config.dockerRegistry}/${svc.name.toLowerCase()}"
+    }
 
     pipeline {
         agent {
@@ -42,231 +51,126 @@ def call(Map config) {
                 inheritFrom config.kubernetesAgentLabel
                 serviceAccount config.kubernetesServiceAccount
                 namespace config.kubernetesNamespace
-                yaml """
-apiVersion: v1
-kind: Pod
-metadata:
-  annotations:
-    linkerd.io/inject: disabled
-spec:
-  securityContext:
-    runAsUser: 0
-  hostAliases:
-  - ip: "${config.harborHostAliasIp}"
-    hostnames:
-    - "harbor.thisisserver.com"
-  imagePullSecrets:
-  - name: ${config.harborImagePullSecret}
-"""
             }
-        }
-
-        environment {
-            DOCKER_REGISTRY = "${config.dockerRegistry}"
-            DOCKER_IMAGE_NAME = "${dockerImageName}"
-            K8S_CONFIGS_REPO_URL = "${config.k8sConfigsRepoUrl}"
-            K8S_CONFIGS_BRANCH = "${config.k8sConfigsBranch}"
-            K8S_KUSTOMIZE_PATH = "${k8sKustomizePath}"
         }
 
         stages {
             stage('Checkout Code') {
                 steps {
-                    echo "Git 저장소 코드 체크아웃 시작: ${config.repoUrl} (${config.repoBranch} 브랜치)"
+                    echo "Git 저장소 코드 체크아웃: ${config.repoUrl} (${config.repoBranch})"
                     checkout([
                         $class: 'GitSCM',
                         branches: [[name: "*/${config.repoBranch}"]],
-                        userRemoteConfigs: [[
-                            url: config.repoUrl,
-                            credentialsId: config.credentialId
-                        ]],
+                        userRemoteConfigs: [[url: config.repoUrl, credentialsId: config.credentialId]],
                         extensions: [
                             [$class: 'CleanBeforeCheckout'],
-                            [$class: 'LocalBranch', localBranch: config.repoBranch],
-                            [$class: 'CloneOption',
-                                depth: 1,
-                                noTags: false,
-                                reference: gitReferenceRepo,
-                                shallow: false
-                            ]
+                            [$class: 'LocalBranch', localBranch: config.repoBranch]
                         ]
                     ])
-                    echo "Git 저장소 코드 체크아웃 완료."
                 }
             }
 
-            stage('Get Git Commit Hash and Message') {
+            stage('Get Git Commit Info') {
                 steps {
                     script {
-                        echo "Git 커밋 정보 가져오기..."
                         env.GIT_COMMIT_SHORT_HASH = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
                         env.GIT_COMMIT_FULL_HASH = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                         env.GIT_COMMIT_MESSAGE_RAW = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
-                        
-                        // 이미지 태그 생성: YYYYMMDD_빌드번호
                         def dateTime = sh(returnStdout: true, script: 'date +%Y%m%d').trim()
                         env.DOCKER_IMAGE_TAG = "${dateTime}_${env.BUILD_NUMBER}"
-
-                        echo "Current Git Short Commit Hash: ${env.GIT_COMMIT_SHORT_HASH}"
-                        echo "Current Git Full Commit Hash: ${env.GIT_COMMIT_FULL_HASH}"
-                        echo "Current Git Commit Message (Subject): ${env.GIT_COMMIT_MESSAGE_RAW}"
                         echo "Docker Image Tag: ${env.DOCKER_IMAGE_TAG}"
                     }
                 }
             }
 
-            stage('Build Go Application') {
-                when {
-                    expression { return config.buildType == 'go' }
-                }
+            stage('Build and Push Services') {
                 steps {
-                    container('jnlp') {
-                        echo "Go 애플리케이션 빌드 시작 (jnlp 컨테이너)..."
-                        sh 'go version'
-                        sh 'go mod download'
-                        sh "go build -v -o ${config.appName} ."
-                    }
-                }
-            }
+                    script {
+                        services.each { svc ->
+                            stage("Build ${svc.name}") {
+                                container('jnlp') {
+                                    dir(svc.buildWorkdir) {
+                                        if (svc.buildType == 'go') {
+                                            sh 'go version'
+                                            sh 'go mod download'
+                                            sh 'go build -v ./...'
+                                        } else if (svc.buildType == 'npm') {
+                                            sh 'npm install'
+                                            sh 'npm run build'
+                                        } else if (svc.buildType == 'nextjs') {
+                                            sh 'npm install'
+                                            sh 'npm run build'
+                                        } else if (svc.buildType == 'docker-only') {
+                                            echo "docker-only: 사전 빌드 스텝 생략"
+                                        } else {
+                                            error "지원하지 않는 buildType: ${svc.buildType}"
+                                        }
+                                    }
+                                }
+                            }
 
-            stage('Build Node.js Application') {
-                when {
-                    expression { return config.buildType == 'npm' }
-                }
-                steps {
-                    container('jnlp') {
-                        echo "Node.js 애플리케이션 빌드 시작 (jnlp 컨테이너)..."
-                        sh 'npm install'
-                        sh 'npm run build'
-                    }
-                }
-            }
-
-            // --- ✨ 새로 추가된 Next.js 빌드 스테이지 ---
-            stage('Build Next.js Application') {
-                when {
-                    expression { return config.buildType == 'nextjs' }
-                }
-                steps {
-                    container('jnlp') {
-                        echo "Next.js 애플리케이션 빌드 시작 (jnlp 컨테이너)..."
-                        sh 'npm install'
-                        sh 'npm run build'
-                        sh 'chown -R 1000:1000 .next'
-                    }
-                }
-            }
-
-
-
-            stage('Login to Harbor Registry') {
-                steps {
-                    container('dind') {
-                        script {
-                            echo "Harbor 레지스트리 인증 파일 생성 중..."
-                            withCredentials([
-                                string(credentialsId: 'HARBOR_USER', variable: 'HARBOR_USER'),
-                                string(credentialsId: 'HARBOR_PASSWORD', variable: 'HARBOR_PASSWORD')
-                            ]) {
-                                sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} harbor.thisisserver.com"
-                                echo "Docker logged in to Harbor Registry"
-
-                                sh "docker build --network=host -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} -f ${config.dockerfilePath} ."
-                                echo "Docker built: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
-                                
-                                sh "docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
-                                echo "Docker pushed: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                            stage("Docker Build/Push ${svc.name}") {
+                                container('dind') {
+                                    withCredentials([
+                                        usernamePassword(
+                                            credentialsId: config.harborCredentialId,
+                                            usernameVariable: 'HARBOR_USER',
+                                            passwordVariable: 'HARBOR_PASSWORD'
+                                        )
+                                    ]) {
+                                        sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} harbor.thisisserver.com"
+                                        sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
+                                        sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
 
-            stage('Update Kustomize Image Tag') {
+            stage('Update Kustomize Image Tags') {
                 when {
-                    expression { return config.deployToK8s }
+                    expression { return services.any { it.deployToK8s } }
                 }
                 steps {
                     script {
-                        echo "Kubernetes configs 저장소 체크아웃 시작: ${config.k8sConfigsRepoUrl} (${config.k8sConfigsBranch} 브랜치)"
                         dir('kubernetes-configs-repo') {
                             checkout([
                                 $class: 'GitSCM',
                                 branches: [[name: "*/${config.k8sConfigsBranch}"]],
-                                userRemoteConfigs: [[
-                                    url: config.k8sConfigsRepoUrl,
-                                    credentialsId: config.credentialId
-                                ]],
+                                userRemoteConfigs: [[url: config.k8sConfigsRepoUrl, credentialsId: config.credentialId]],
                                 extensions: [
                                     [$class: 'CleanBeforeCheckout'],
                                     [$class: 'LocalBranch', localBranch: config.k8sConfigsBranch]
                                 ]
                             ])
-                            
-                            echo "kustomization.yaml 파일 업데이트: ${env.K8S_KUSTOMIZE_PATH}"
-                            def kustomizationFile = "${env.K8S_KUSTOMIZE_PATH}"
-                            def kustomization = readYaml file: kustomizationFile
 
-                            def imageUpdated = false
-                            kustomization.images.each { image ->
-                                if (image.name == "${env.DOCKER_IMAGE_NAME}") {
-                                    image.newTag = env.DOCKER_IMAGE_TAG
-                                    imageUpdated = true
-                                    echo "Image tag updated to: ${env.DOCKER_IMAGE_TAG}"
+                            services.findAll { it.deployToK8s }.each { svc ->
+                                def kustomizationFile = "${config.k8sKustomizePathPrefix}/${svc.k8sAppName}/kustomization.yaml"
+                                def kustomization = readYaml file: kustomizationFile
+                                def imageUpdated = false
+
+                                kustomization.images.each { image ->
+                                    if (image.name == svc.imageRepo) {
+                                        image.newTag = env.DOCKER_IMAGE_TAG
+                                        imageUpdated = true
+                                    }
                                 }
-                            }
 
-                            if (!imageUpdated) {
-                                error "Error: Image '${env.DOCKER_IMAGE_NAME}' not found in ${kustomizationFile}. Please ensure it exists in the 'images' list."
-                            }
-
-                            def kustomizationDir = kustomizationFile.substring(0, kustomizationFile.lastIndexOf('/'))
-                            def patchFile = "${kustomizationDir}/patch-change-cause.yaml"
-
-                            if (fileExists(patchFile)) {
-                                def patchContent = readFile(patchFile)
-                                def maxMessageLength = 60
-                                def commitMessageForCause = env.GIT_COMMIT_MESSAGE_RAW
-                                if (commitMessageForCause.length() > maxMessageLength) {
-                                    commitMessageForCause = commitMessageForCause.substring(0, maxMessageLength - 3) + "..."
+                                if (!imageUpdated) {
+                                    error "이미지 '${svc.imageRepo}'를 ${kustomizationFile}의 images에서 찾지 못했습니다."
                                 }
-                                def changeCauseValue = "Hash: ${env.GIT_COMMIT_FULL_HASH}, Log: ${commitMessageForCause}"
-                                def pattern = ~/kubernetes\.io\/change-cause:\s*'[^']*'/
-                                def updatedPatchContent = patchContent.replaceAll(pattern, "kubernetes.io/change-cause: '${changeCauseValue}'")
-                                writeFile file: patchFile, text: updatedPatchContent
-                                echo "CHANGE-CAUSE annotation updated in patch file to: ${changeCauseValue}"
-                            } else {
-                                echo "patch-change-cause.yaml not found. Skipping change-cause update."
+
+                                writeYaml file: kustomizationFile, data: kustomization, overwrite: true
+                                sh "git add ${kustomizationFile}"
                             }
 
-                            writeYaml file: kustomizationFile, data: kustomization, overwrite: true
-                            withCredentials([string(credentialsId: 'github-known-host', variable: 'GITHUB_HOST_KEY')]) {
-                                sh '''
-                                    mkdir -p ~/.ssh
-                                    echo "${GITHUB_HOST_KEY}" > ~/.ssh/known_hosts
-                                    chmod 644 ~/.ssh/known_hosts
-                                '''
-                            }
-
-                            echo "변경된 kustomization.yaml 커밋 및 푸시..."
                             sh "git config user.email '${config.jenkinsUserEmail}'"
                             sh "git config user.name '${config.jenkinsUserName}'"
                             sshagent([config.credentialId]) {
-                                sh "git add ${kustomizationFile}"
-                                if (fileExists(patchFile)) {
-                                    sh "git add ${patchFile}"
-                                }
-                                try {
-                                    sh "git commit -m \"Update: ${config.appName} image tag to ${env.DOCKER_IMAGE_TAG}\""
-                                    sh "git push origin ${config.k8sConfigsBranch}"
-                                    echo "Successfully committed and pushed kustomization.yaml changes."
-                                } catch (Exception e) {
-                                    if (e.getMessage().contains('nothing to commit')) {
-                                        echo "No changes to commit in kustomization.yaml. Skipping commit and push."
-                                    } else {
-                                        throw e
-                                    }
-                                }
+                                sh "git commit -m 'Update image tags to ${env.DOCKER_IMAGE_TAG}' || true"
+                                sh "git push origin ${config.k8sConfigsBranch}"
                             }
                         }
                     }
@@ -279,11 +183,11 @@ spec:
                 echo "Pipeline finished."
             }
             success {
-                echo "Pipeline succeeded! 🎉 Docker Image: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+                echo "Pipeline succeeded."
                 cleanWs()
             }
             failure {
-                echo "Pipeline failed! ❌"
+                echo "Pipeline failed."
             }
         }
     }
