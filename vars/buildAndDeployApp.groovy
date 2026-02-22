@@ -91,15 +91,29 @@ def call(Map config) {
                                 container('jnlp') {
                                     dir(svc.buildWorkdir) {
                                         if (svc.buildType == 'go') {
-                                            sh 'go version'
-                                            sh 'go mod download'
-                                            sh 'go build -v ./...'
+                                            withEnv([
+                                                "GOMODCACHE=${env.WORKSPACE}/.cache/go/pkg/mod",
+                                                "GOCACHE=${env.WORKSPACE}/.cache/go/build",
+                                                "GOPATH=${env.WORKSPACE}/.cache/go"
+                                            ]) {
+                                                sh 'mkdir -p "$GOMODCACHE" "$GOCACHE" "$GOPATH"'
+                                                sh 'go version'
+                                                sh 'go env GOMODCACHE GOCACHE GOPATH'
+                                                sh 'go mod download'
+                                                sh 'go build -v ./...'
+                                            }
                                         } else if (svc.buildType == 'npm') {
-                                            sh 'npm install'
-                                            sh 'npm run build'
+                                            withEnv(["NPM_CONFIG_CACHE=${env.WORKSPACE}/.cache/npm"]) {
+                                                sh 'mkdir -p "$NPM_CONFIG_CACHE"'
+                                                sh 'npm install'
+                                                sh 'npm run build'
+                                            }
                                         } else if (svc.buildType == 'nextjs') {
-                                            sh 'npm install'
-                                            sh 'npm run build'
+                                            withEnv(["NPM_CONFIG_CACHE=${env.WORKSPACE}/.cache/npm"]) {
+                                                sh 'mkdir -p "$NPM_CONFIG_CACHE"'
+                                                sh 'npm install'
+                                                sh 'npm run build'
+                                            }
                                         } else if (svc.buildType == 'docker-only') {
                                             echo "docker-only: 사전 빌드 스텝 생략"
                                         } else {
