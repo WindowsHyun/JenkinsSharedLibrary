@@ -13,8 +13,11 @@ def call(Map config) {
     config.kubernetesServiceAccount = config.kubernetesServiceAccount ?: 'jenkins-admin'
     config.kubernetesNamespace = config.kubernetesNamespace ?: 'devops'
     config.kubernetesCloud = config.kubernetesCloud ?: 'k3s'
-    config.harborCredentialId = config.harborCredentialId ?: 'harbor'
+    config.harborCredentialId = config.get('harborCredentialId', '')
+    config.harborUserCredentialId = config.harborUserCredentialId ?: 'HARBOR_USER'
+    config.harborPasswordCredentialId = config.harborPasswordCredentialId ?: 'HARBOR_PASSWORD'
     config.deployToK8s = config.get('deployToK8s', true)
+    def harborRegistryHost = (config.dockerRegistry ?: '').tokenize('/')[0]
 
     def services = config.services
     if (!services) {
@@ -125,16 +128,27 @@ def call(Map config) {
 
                             stage("Docker Build/Push ${svc.name}") {
                                 container('dind') {
-                                    withCredentials([
-                                        usernamePassword(
-                                            credentialsId: config.harborCredentialId,
-                                            usernameVariable: 'HARBOR_USER',
-                                            passwordVariable: 'HARBOR_PASSWORD'
-                                        )
-                                    ]) {
-                                        sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} harbor.thisisserver.com"
-                                        sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
-                                        sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                    if (config.harborCredentialId?.trim()) {
+                                        withCredentials([
+                                            usernamePassword(
+                                                credentialsId: config.harborCredentialId,
+                                                usernameVariable: 'HARBOR_USER',
+                                                passwordVariable: 'HARBOR_PASSWORD'
+                                            )
+                                        ]) {
+                                            sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
+                                            sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
+                                            sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                        }
+                                    } else {
+                                        withCredentials([
+                                            string(credentialsId: config.harborUserCredentialId, variable: 'HARBOR_USER'),
+                                            string(credentialsId: config.harborPasswordCredentialId, variable: 'HARBOR_PASSWORD')
+                                        ]) {
+                                            sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
+                                            sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
+                                            sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                        }
                                     }
                                 }
                             }
