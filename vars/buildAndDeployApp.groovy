@@ -287,8 +287,15 @@ ${availableKustomizations ?: '(없음)'}"""
 
                             sh "git config user.email '${config.jenkinsUserEmail}'"
                             sh "git config user.name '${config.jenkinsUserName}'"
-                            sshagent([config.credentialId]) {
-                                sh "export GIT_SSH_COMMAND='ssh -v -o StrictHostKeyChecking=no' && git push origin ${config.k8sConfigsBranch}"
+
+                            def hasStagedChanges = sh(returnStatus: true, script: 'git diff --cached --quiet') != 0
+                            if (hasStagedChanges) {
+                                sh "git commit -m \"Change: update image tags to ${env.DOCKER_IMAGE_TAG} (${env.JOB_NAME}#${env.BUILD_NUMBER})\""
+                                sshagent([config.credentialId]) {
+                                    sh "export GIT_SSH_COMMAND='ssh -v -o StrictHostKeyChecking=no' && git push origin ${config.k8sConfigsBranch}"
+                                }
+                            } else {
+                                echo "커밋할 변경사항이 없어 git push를 생략합니다."
                             }
                         }
                     }
