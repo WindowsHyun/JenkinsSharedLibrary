@@ -6,6 +6,7 @@ def call(Map config) {
     config.k8sConfigsRepoUrl = config.k8sConfigsRepoUrl ?: 'git@github.com:WindowsHyun/kubernetes-configs.git'
     config.k8sConfigsBranch = config.k8sConfigsBranch ?: 'develop'
     config.k8sKustomizePathPrefix = config.k8sKustomizePathPrefix ?: 'apps/dev'
+    config.k8sKustomizationFile = config.k8sKustomizationFile ?: ''
     config.credentialId = config.credentialId ?: 'jenkins-ssh-credential'
     config.jenkinsUserEmail = config.jenkinsUserEmail ?: 'jenkins@thisisserver.com'
     config.jenkinsUserName = config.jenkinsUserName ?: 'Jenkins'
@@ -31,7 +32,8 @@ def call(Map config) {
             buildContext: config.buildContext ?: '.',
             buildWorkdir: config.buildWorkdir ?: '.',
             deployToK8s: config.get('deployToK8s', true),
-            k8sAppName: (config.appName ?: '').toLowerCase()
+            k8sAppName: (config.appName ?: '').toLowerCase(),
+            k8sKustomizationFile: config.k8sKustomizationFile ?: ''
         ]]
     }
 
@@ -44,6 +46,9 @@ def call(Map config) {
         svc.buildWorkdir = svc.buildWorkdir ?: '.'
         svc.deployToK8s = svc.containsKey('deployToK8s') ? svc.deployToK8s : config.deployToK8s
         svc.k8sAppName = svc.k8sAppName ?: svc.name.toLowerCase()
+        svc.k8sKustomizationFile = svc.k8sKustomizationFile ?: config.k8sKustomizationFile
+        svc.k8sDeploymentName = svc.k8sDeploymentName ?: ''
+        svc.k8sChangeCausePatchFile = svc.k8sChangeCausePatchFile ?: ''
         svc.imageRepo = "${config.dockerRegistry}/${svc.name.toLowerCase()}"
     }
 
@@ -173,24 +178,111 @@ def call(Map config) {
                                 ]
                             ])
 
-                            services.findAll { it.deployToK8s }.each { svc ->
-                                def kustomizationFile = "${config.k8sKustomizePathPrefix}/${svc.k8sAppName}/kustomization.yaml"
-                                def kustomization = readYaml file: kustomizationFile
-                                def imageUpdated = false
-
-                                kustomization.images.each { image ->
-                                    if (image.name == svc.imageRepo) {
-                                        image.newTag = env.DOCKER_IMAGE_TAG
-                                        imageUpdated = true
-                                    }
+                            def resolveKustomizationFile = { svc ->
+                                if (svc.k8sKustomizationFile?.trim()) {
+                                    return svc.k8sKustomizationFile.trim()
                                 }
 
-                                if (!imageUpdated) {
-                                    error "이미지 '${svc.imageRepo}'를 ${kustomizationFile}의 images에서 찾지 못했습니다."
+                                def defaultByAppName = "${config.k8sKustomizePathPrefix}/${svc.k8sAppName}/kustomization.yaml"
+                                if (fileExists(defaultByAppName)) {
+                                    return defaultByAppName
+                                }
+
+                                def discovered = sh(
+                                    returnStdout: true,
+                                    script: """for file in \$(find ${config.k8sKustomizePathPrefix} -maxdepth 5 -name kustomization.yaml 2>/dev/null); do
+  if grep -Fq \"name: ${svc.imageRepo}\" \"\$file\"; then
+    echo \"\$file\"
+  fi
+done"""
+                                ).trim().readLines().findAll { it?.trim() }
+
+                                if (discovered.size() == 1) {
+                                    return discovered[0].trim()
+                                }
+
+                                def availableKustomizations = sh(
+                                    returnStdout: true,
+                                    script: "find ${config.k8sKustomizePathPrefix} -maxdepth 5 -name kustomization.yaml 2>/dev/null | sort || true"
+                                ).trim()
+
+                                if (discovered.size() > 1) {
+                                    error """서비스 '${svc.name}'의 대상 kustomization 파일이 여러 개로 모호합니다.
+imageRepo: ${svc.imageRepo}
+발견된 파일:
+${discovered.join('\n')}
+
+services[].k8sKustomizationFile로 명시해 주세요."""
+                                }
+
+                                error """kustomization 파일을 찾지 못했습니다 (service=${svc.name}, imageRepo=${svc.imageRepo})
+확인할 항목:
+- services[].k8sAppName
+- config.k8sKustomizePathPrefix
+- config.k8sKustomizationFile / services[].k8sKustomizationFile
+
+${config.k8sKustomizePathPrefix} 하위에서 찾은 kustomization.yaml:
+${availableKustomizations ?: '(없음)'}"""
+                            }
+
+                            def deployServices = services.findAll { it.deployToK8s }
+                            deployServices.each { svc ->
+                                svc._resolvedKustomizationFile = resolveKustomizationFile(svc)
+                            }
+
+                            def serviceGroups = deployServices.groupBy { it._resolvedKustomizationFile }
+
+                            serviceGroups.each { kustomizationFile, groupedServices ->
+                                if (!fileExists(kustomizationFile)) {
+                                    error "해결된 kustomization 파일이 존재하지 않습니다: ${kustomizationFile}"
+                                }
+
+                                def kustomization = readYaml file: kustomizationFile
+
+                                if (!(kustomization?.images instanceof List)) {
+                                    error "${kustomizationFile}에 images 항목이 없거나 형식이 올바르지 않습니다."
+                                }
+
+                                groupedServices.each { svc ->
+                                    def imageUpdated = false
+
+                                    kustomization.images.each { image ->
+                                        if (image.name == svc.imageRepo) {
+                                            image.newTag = env.DOCKER_IMAGE_TAG
+                                            imageUpdated = true
+                                        }
+                                    }
+
+                                    if (!imageUpdated) {
+                                        error "이미지 '${svc.imageRepo}'를 ${kustomizationFile}의 images에서 찾지 못했습니다."
+                                    }
                                 }
 
                                 writeYaml file: kustomizationFile, data: kustomization, overwrite: true
                                 sh "git add ${kustomizationFile}"
+                            }
+
+                            deployServices.findAll { it.k8sChangeCausePatchFile?.trim() }.each { svc ->
+                                def patchFile = svc.k8sChangeCausePatchFile.trim()
+
+                                if (!fileExists(patchFile)) {
+                                    error "change-cause 패치 파일을 찾지 못했습니다: ${patchFile}"
+                                }
+
+                                def patchData = readYaml file: patchFile
+                                def deploymentName = svc.k8sDeploymentName?.trim() ? svc.k8sDeploymentName.trim() : "${svc.k8sAppName}-deployment"
+
+                                if (patchData?.kind != 'Deployment' || patchData?.metadata?.name != deploymentName) {
+                                    error "${patchFile}의 Deployment 이름이 예상값과 다릅니다. expected=${deploymentName}, actual=${patchData?.metadata?.name}"
+                                }
+
+                                if (!patchData.metadata.annotations) {
+                                    patchData.metadata.annotations = [:]
+                                }
+
+                                patchData.metadata.annotations['kubernetes.io/change-cause'] = "Hash: ${env.GIT_COMMIT_SHORT_HASH}, Log: Change: ${env.GIT_COMMIT_MESSAGE_RAW}"
+                                writeYaml file: patchFile, data: patchData, overwrite: true
+                                sh "git add ${patchFile}"
                             }
 
                             sh "git config user.email '${config.jenkinsUserEmail}'"
