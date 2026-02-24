@@ -196,8 +196,7 @@ def call(Map config) {
                             sh "git config user.email '${config.jenkinsUserEmail}'"
                             sh "git config user.name '${config.jenkinsUserName}'"
                             sshagent([config.credentialId]) {
-                                sh "git commit -m 'Update image tags to ${env.DOCKER_IMAGE_TAG}' || true"
-                                sh "git push origin ${config.k8sConfigsBranch}"
+                                sh "export GIT_SSH_COMMAND='ssh -v -o StrictHostKeyChecking=no' && git push origin ${config.k8sConfigsBranch}"
                             }
                         }
                     }
