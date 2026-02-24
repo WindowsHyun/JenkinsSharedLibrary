@@ -104,7 +104,14 @@ def call(Map config) {
                                                 sh 'go env GOMODCACHE GOCACHE GOPATH'
                                                 sh 'go mod download'
                                                 sh 'go build -v ./...'
-                                                sh "find . -name ${svc.name} -type f -exec cp {} ${env.WORKSPACE}/${svc.name} \\;"
+                                                sh """
+    # 대소문자 무시하고 파일 찾기
+    find . -iname "${svc.name}" -type f -exec cp {} ${env.WORKSPACE}/${svc.name} \\;
+    
+    # 복사가 실제로 되었는지 로그로 확인 (디버깅용)
+    echo "현재 워크스페이스 파일 목록:"
+    ls -lh ${env.WORKSPACE}/${svc.name} || echo "파일을 찾을 수 없습니다!"
+"""
                                             }
                                         } else if (svc.buildType == 'npm') {
                                             withEnv(["NPM_CONFIG_CACHE=${env.WORKSPACE}/.cache/npm"]) {
