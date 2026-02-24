@@ -104,7 +104,7 @@ def call(Map config) {
                                                 sh 'go env GOMODCACHE GOCACHE GOPATH'
                                                 sh 'go mod download'
                                                 sh 'go build -v ./...'
-                                                sh "find . -name ${svc.name} -type f -exec cp {} ./${svc.name} \\;"
+                                                sh "find . -name ${svc.name} -type f -exec cp {} ${env.WORKSPACE}/${svc.name} \\;"
                                             }
                                         } else if (svc.buildType == 'npm') {
                                             withEnv(["NPM_CONFIG_CACHE=${env.WORKSPACE}/.cache/npm"]) {
