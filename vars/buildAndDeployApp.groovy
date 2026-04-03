@@ -121,6 +121,8 @@ def call(Map config) {
                                                 sh 'npm install'
                                                 sh 'npm run build'
                                             }
+                                        } else if (svc.buildType == 'web' || svc.buildType == 'html') {
+                                            echo "${svc.buildType}: 정적 파일 배포로 사전 빌드 스텝 생략"
                                         } else if (svc.buildType == 'docker-only') {
                                             echo "docker-only: 사전 빌드 스텝 생략"
                                         } else {
