@@ -18,6 +18,9 @@ def call(Map config) {
     config.harborUserCredentialId = config.harborUserCredentialId ?: 'HARBOR_USER'
     config.harborPasswordCredentialId = config.harborPasswordCredentialId ?: 'HARBOR_PASSWORD'
     config.deployToK8s = config.get('deployToK8s', true)
+    config.androidApkRootDir = config.androidApkRootDir ?: '/home/apk'
+    config.androidModulePath = config.androidModulePath ?: 'app'
+    config.androidBuildType = config.androidBuildType ?: 'release'
     def harborRegistryHost = (config.dockerRegistry ?: '').tokenize('/')[0]
 
     def services = config.services
@@ -31,24 +34,37 @@ def call(Map config) {
             dockerfilePath: config.dockerfilePath ?: 'Dockerfile',
             buildContext: config.buildContext ?: '.',
             buildWorkdir: config.buildWorkdir ?: '.',
-            deployToK8s: config.get('deployToK8s', true),
+            deployToK8s: config.buildType == 'android' ? config.get('deployToK8s', false) : config.get('deployToK8s', true),
             k8sAppName: (config.appName ?: '').toLowerCase(),
-            k8sKustomizationFile: config.k8sKustomizationFile ?: ''
+            k8sKustomizationFile: config.k8sKustomizationFile ?: '',
+            androidApkRootDir: config.androidApkRootDir,
+            androidModulePath: config.androidModulePath,
+            androidBuildType: config.androidBuildType,
+            skipDockerBuildPush: config.get('skipDockerBuildPush', config.buildType == 'android')
         ]]
     }
 
     services.each { svc ->
         if (!svc.name) error "services[].name 파라미터는 필수입니다."
         if (!svc.buildType) error "services[${svc.name}].buildType 파라미터는 필수입니다."
+        if (svc.name =~ /[\\/]|\.\./) error "services[${svc.name}].name 에는 경로 문자를 사용할 수 없습니다."
 
         svc.dockerfilePath = svc.dockerfilePath ?: 'Dockerfile'
         svc.buildContext = svc.buildContext ?: '.'
         svc.buildWorkdir = svc.buildWorkdir ?: '.'
-        svc.deployToK8s = svc.containsKey('deployToK8s') ? svc.deployToK8s : config.deployToK8s
+        def defaultDeployToK8s = svc.buildType == 'android' ? false : config.deployToK8s
+        svc.deployToK8s = svc.containsKey('deployToK8s') ? svc.deployToK8s : defaultDeployToK8s
+        svc.skipDockerBuildPush = svc.containsKey('skipDockerBuildPush') ? svc.skipDockerBuildPush : (svc.buildType == 'android')
         svc.k8sAppName = svc.k8sAppName ?: svc.name.toLowerCase()
         svc.k8sKustomizationFile = svc.k8sKustomizationFile ?: config.k8sKustomizationFile
         svc.k8sDeploymentName = svc.k8sDeploymentName ?: ''
         svc.k8sChangeCausePatchFile = svc.k8sChangeCausePatchFile ?: ''
+        svc.androidApkRootDir = svc.androidApkRootDir ?: config.androidApkRootDir
+        svc.androidModulePath = svc.androidModulePath ?: config.androidModulePath
+        svc.androidBuildType = (svc.androidBuildType ?: config.androidBuildType).toLowerCase()
+        if (svc.buildType == 'android' && !(svc.androidBuildType in ['debug', 'release'])) {
+            error "services[${svc.name}].androidBuildType 는 debug 또는 release 만 지원합니다."
+        }
         svc.imageRepo = "${config.dockerRegistry}/${svc.name.toLowerCase()}"
     }
 
@@ -85,6 +101,7 @@ def call(Map config) {
                         env.GIT_COMMIT_FULL_HASH = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                         env.GIT_COMMIT_MESSAGE_RAW = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
                         def dateTime = sh(returnStdout: true, script: 'date +%Y%m%d').trim()
+                        env.BUILD_DATE = dateTime
                         env.DOCKER_IMAGE_TAG = "${dateTime}_${env.BUILD_NUMBER}"
                         echo "Docker Image Tag: ${env.DOCKER_IMAGE_TAG}"
                     }
@@ -123,6 +140,36 @@ def call(Map config) {
                                             }
                                         } else if (svc.buildType == 'web' || svc.buildType == 'html') {
                                             echo "${svc.buildType}: 정적 파일 배포로 사전 빌드 스텝 생략"
+                                        } else if (svc.buildType == 'android') {
+                                            def buildFlavor = svc.androidBuildType == 'debug' ? 'Debug' : 'Release'
+                                            def modulePath = svc.androidModulePath.trim().replaceAll('^:+|:+$', '')
+                                            if (!modulePath || modulePath.contains('..')) {
+                                                error "services[${svc.name}].androidModulePath 값이 유효하지 않습니다."
+                                            }
+                                            def gradleTask = ":${modulePath}:assemble${buildFlavor}"
+
+                                            sh 'command -v java >/dev/null 2>&1 || { echo "Java 실행 파일을 찾지 못했습니다."; exit 1; }'
+                                            sh 'java -version'
+                                            sh 'if [ -f gradlew ]; then chmod +x gradlew; fi'
+                                            sh "./gradlew ${gradleTask}"
+
+                                            def apkOutputDir = "${modulePath}/build/outputs/apk/${svc.androidBuildType}"
+                                            def builtApkPath = sh(
+                                                returnStdout: true,
+                                                script: "find ${apkOutputDir} -maxdepth 1 -type f -name '*.apk' | sort | tail -n 1 || true"
+                                            ).trim()
+
+                                            if (!builtApkPath) {
+                                                error "Android APK 파일을 찾지 못했습니다. 확인 경로: ${apkOutputDir}"
+                                            }
+
+                                            def apkProjectDir = "${svc.androidApkRootDir}/${svc.name}"
+                                            def archivedApkPath = "${apkProjectDir}/${env.BUILD_DATE}.apk"
+
+                                            sh "mkdir -p '${apkProjectDir}'"
+                                            sh "cp '${builtApkPath}' '${archivedApkPath}'"
+                                            sh "ls -lh '${archivedApkPath}'"
+                                            echo "Android APK 저장 완료: ${archivedApkPath}"
                                         } else if (svc.buildType == 'docker-only') {
                                             echo "docker-only: 사전 빌드 스텝 생략"
                                         } else {
@@ -133,27 +180,31 @@ def call(Map config) {
                             }
 
                             stage("Docker Build/Push ${svc.name}") {
-                                container('dind') {
-                                    if (config.harborCredentialId?.trim()) {
-                                        withCredentials([
-                                            usernamePassword(
-                                                credentialsId: config.harborCredentialId,
-                                                usernameVariable: 'HARBOR_USER',
-                                                passwordVariable: 'HARBOR_PASSWORD'
-                                            )
-                                        ]) {
-                                            sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
-                                            sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
-                                            sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
-                                        }
-                                    } else {
-                                        withCredentials([
-                                            string(credentialsId: config.harborUserCredentialId, variable: 'HARBOR_USER'),
-                                            string(credentialsId: config.harborPasswordCredentialId, variable: 'HARBOR_PASSWORD')
-                                        ]) {
-                                            sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
-                                            sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
-                                            sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                if (svc.skipDockerBuildPush) {
+                                    echo "${svc.name}: Docker Build/Push 생략"
+                                } else {
+                                    container('dind') {
+                                        if (config.harborCredentialId?.trim()) {
+                                            withCredentials([
+                                                usernamePassword(
+                                                    credentialsId: config.harborCredentialId,
+                                                    usernameVariable: 'HARBOR_USER',
+                                                    passwordVariable: 'HARBOR_PASSWORD'
+                                                )
+                                            ]) {
+                                                sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
+                                                sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
+                                                sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                            }
+                                        } else {
+                                            withCredentials([
+                                                string(credentialsId: config.harborUserCredentialId, variable: 'HARBOR_USER'),
+                                                string(credentialsId: config.harborPasswordCredentialId, variable: 'HARBOR_PASSWORD')
+                                            ]) {
+                                                sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
+                                                sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
+                                                sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                            }
                                         }
                                     }
                                 }
