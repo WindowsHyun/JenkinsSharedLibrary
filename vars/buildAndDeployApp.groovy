@@ -5,7 +5,7 @@ def call(Map config) {
     config.dockerRegistry = config.dockerRegistry ?: 'harbor.thisisserver.com/library'
     config.k8sConfigsRepoUrl = config.k8sConfigsRepoUrl ?: 'git@github.com:WindowsHyun/kubernetes-configs.git'
     config.k8sConfigsBranch = config.k8sConfigsBranch ?: 'develop'
-    config.k8sKustomizePathPrefix = config.k8sKustomizePathPrefix ?: 'apps/dev'
+    config.k8sKustomizePathPrefix = config.k8sKustomizePathPrefix ?: 'apps'
     config.k8sKustomizationFile = config.k8sKustomizationFile ?: ''
     config.credentialId = config.credentialId ?: 'jenkins-ssh-credential'
     config.jenkinsUserEmail = config.jenkinsUserEmail ?: 'jenkins@thisisserver.com'
