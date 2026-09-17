@@ -220,20 +220,22 @@ def call(Map config) {
                 }
                 steps {
                     script {
+                        // Use pure git CLI instead of checkout() to avoid registering kubernetes-configs
+                        // as an SCM polling target. Only the application repo should be polled.
                         dir('kubernetes-configs-repo') {
-                            // GitOps commits are deployment output, never an input trigger.
-                            // Keep SCM polling bound to the application checkout only.
-                            checkout([
-                                $class: 'GitSCM',
-                                poll: false,
-                                changelog: false,
-                                branches: [[name: "*/${config.k8sConfigsBranch}"]],
-                                userRemoteConfigs: [[url: config.k8sConfigsRepoUrl, credentialsId: config.credentialId]],
-                                extensions: [
-                                    [$class: 'CleanBeforeCheckout'],
-                                    [$class: 'LocalBranch', localBranch: config.k8sConfigsBranch]
-                                ]
-                            ])
+                            // Clone only if not exists (workspace is clean per build)
+                            sh \"\"\"
+                                if [ ! -d .git ]; then
+                                    git clone ${config.k8sConfigsRepoUrl} .
+                                    git checkout ${config.k8sConfigsBranch}
+                                else
+                                    git fetch origin ${config.k8sConfigsBranch}
+                                    git checkout ${config.k8sConfigsBranch}
+                                    git pull origin ${config.k8sConfigsBranch}
+                                fi
+                                git config user.email '${config.jenkinsUserEmail}'
+                                git config user.name '${config.jenkinsUserName}'
+                            \"\"\"
 
                             def resolveKustomizationFile = { svc ->
                                 if (svc.k8sKustomizationFile?.trim()) {
@@ -341,9 +343,6 @@ ${availableKustomizations ?: '(없음)'}"""
                                 writeYaml file: patchFile, data: patchData, overwrite: true
                                 sh "git add ${patchFile}"
                             }
-
-                            sh "git config user.email '${config.jenkinsUserEmail}'"
-                            sh "git config user.name '${config.jenkinsUserName}'"
 
                             def hasStagedChanges = sh(returnStatus: true, script: 'git diff --cached --quiet') != 0
                             if (hasStagedChanges) {
