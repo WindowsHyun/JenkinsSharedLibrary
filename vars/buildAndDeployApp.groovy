@@ -221,8 +221,12 @@ def call(Map config) {
                 steps {
                     script {
                         dir('kubernetes-configs-repo') {
+                            // GitOps commits are deployment output, never an input trigger.
+                            // Keep SCM polling bound to the application checkout only.
                             checkout([
                                 $class: 'GitSCM',
+                                poll: false,
+                                changelog: false,
                                 branches: [[name: "*/${config.k8sConfigsBranch}"]],
                                 userRemoteConfigs: [[url: config.k8sConfigsRepoUrl, credentialsId: config.credentialId]],
                                 extensions: [
