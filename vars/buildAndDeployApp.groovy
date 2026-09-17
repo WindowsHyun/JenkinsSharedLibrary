@@ -224,7 +224,7 @@ def call(Map config) {
                         // as an SCM polling target. Only the application repo should be polled.
                         dir('kubernetes-configs-repo') {
                             // Clone only if not exists (workspace is clean per build)
-                            sh \"\"\"
+                            sh """
                                 if [ ! -d .git ]; then
                                     git clone ${config.k8sConfigsRepoUrl} .
                                     git checkout ${config.k8sConfigsBranch}
@@ -235,7 +235,7 @@ def call(Map config) {
                                 fi
                                 git config user.email '${config.jenkinsUserEmail}'
                                 git config user.name '${config.jenkinsUserName}'
-                            \"\"\"
+                            """
 
                             def resolveKustomizationFile = { svc ->
                                 if (svc.k8sKustomizationFile?.trim()) {
