@@ -223,19 +223,25 @@ def call(Map config) {
                         // Use pure git CLI instead of checkout() to avoid registering kubernetes-configs
                         // as an SCM polling target. Only the application repo should be polled.
                         dir('kubernetes-configs-repo') {
-                            // Clone only if not exists (workspace is clean per build)
-                            sh """
-                                if [ ! -d .git ]; then
-                                    git clone ${config.k8sConfigsRepoUrl} .
-                                    git checkout ${config.k8sConfigsBranch}
-                                else
-                                    git fetch origin ${config.k8sConfigsBranch}
-                                    git checkout ${config.k8sConfigsBranch}
-                                    git pull origin ${config.k8sConfigsBranch}
-                                fi
-                                git config user.email '${config.jenkinsUserEmail}'
-                                git config user.name '${config.jenkinsUserName}'
-                            """
+                            // Clone only if not exists (workspace is clean per build).
+                            // The SSH key and host-key handling match the push step below:
+                            // without them the clone has no credentials and ssh waits forever
+                            // on the github.com host-key prompt.
+                            sshagent([config.credentialId]) {
+                                sh """
+                                    export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no'
+                                    if [ ! -d .git ]; then
+                                        git clone ${config.k8sConfigsRepoUrl} .
+                                        git checkout ${config.k8sConfigsBranch}
+                                    else
+                                        git fetch origin ${config.k8sConfigsBranch}
+                                        git checkout ${config.k8sConfigsBranch}
+                                        git pull origin ${config.k8sConfigsBranch}
+                                    fi
+                                    git config user.email '${config.jenkinsUserEmail}'
+                                    git config user.name '${config.jenkinsUserName}'
+                                """
+                            }
 
                             def resolveKustomizationFile = { svc ->
                                 if (svc.k8sKustomizationFile?.trim()) {
