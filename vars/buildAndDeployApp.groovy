@@ -198,7 +198,9 @@ def call(Map config) {
                                                     passwordVariable: 'HARBOR_PASSWORD'
                                                 )
                                             ]) {
-                                                sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$harborRegistryHost"'
+                                                withEnv(["HARBOR_HOST=${harborRegistryHost}"]) {
+                                                sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$HARBOR_HOST"'
+                                                }
                                                 sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
                                                 sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
                                             }
@@ -207,7 +209,9 @@ def call(Map config) {
                                                 string(credentialsId: config.harborUserCredentialId, variable: 'HARBOR_USER'),
                                                 string(credentialsId: config.harborPasswordCredentialId, variable: 'HARBOR_PASSWORD')
                                             ]) {
-                                                sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$harborRegistryHost"'
+                                                withEnv(["HARBOR_HOST=${harborRegistryHost}"]) {
+                                                sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$HARBOR_HOST"'
+                                                }
                                                 sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
                                                 sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
                                             }
