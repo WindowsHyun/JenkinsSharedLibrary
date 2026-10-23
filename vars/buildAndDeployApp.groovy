@@ -18,6 +18,12 @@ def call(Map config) {
     config.harborUserCredentialId = config.harborUserCredentialId ?: 'HARBOR_USER'
     config.harborPasswordCredentialId = config.harborPasswordCredentialId ?: 'HARBOR_PASSWORD'
     config.deployToK8s = config.get('deployToK8s', true)
+    config.argocdSyncEnabled = config.get('argocdSyncEnabled', false)
+    if (config.argocdSyncEnabled) {
+        ['argocdAppName', 'k8sNamespace', 'k8sDeploymentName'].each { key ->
+            if (!(config[key] ==~ /[a-z0-9][a-z0-9.-]*/)) error "Invalid ${key}"
+        }
+    }
     config.androidApkRootDir = config.androidApkRootDir ?: '/home/apk'
     config.androidModulePath = config.androidModulePath ?: 'app'
     config.androidBuildType = config.androidBuildType ?: 'release'
@@ -192,7 +198,7 @@ def call(Map config) {
                                                     passwordVariable: 'HARBOR_PASSWORD'
                                                 )
                                             ]) {
-                                                sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
+                                                sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$harborRegistryHost"'
                                                 sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
                                                 sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
                                             }
@@ -201,7 +207,7 @@ def call(Map config) {
                                                 string(credentialsId: config.harborUserCredentialId, variable: 'HARBOR_USER'),
                                                 string(credentialsId: config.harborPasswordCredentialId, variable: 'HARBOR_PASSWORD')
                                             ]) {
-                                                sh "docker login -u ${env.HARBOR_USER} -p ${env.HARBOR_PASSWORD} ${harborRegistryHost}"
+                                                sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$harborRegistryHost"'
                                                 sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
                                                 sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
                                             }
@@ -359,6 +365,28 @@ ${availableKustomizations ?: '(없음)'}"""
                             } else {
                                 echo "커밋할 변경사항이 없어 git push를 생략합니다."
                             }
+                            env.GITOPS_REVISION = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+                            echo "GitOps revision: ${env.GITOPS_REVISION}"
+                        }
+                    }
+                }
+            }
+
+            stage('Sync ArgoCD and Verify Deployment') {
+                when { expression { return config.argocdSyncEnabled } }
+                steps {
+                    script {
+                        def deployService = services.find { it.deployToK8s && it.k8sAppName == config.argocdAppName }
+                        if (!deployService) error "No deployable service for ArgoCD application ${config.argocdAppName}"
+                        writeFile file: 'syncArgo.sh', text: libraryResource('syncArgo.sh')
+                        withEnv([
+                            "ARGO_APP=${config.argocdAppName}",
+                            "GITOPS_REVISION=${env.GITOPS_REVISION}",
+                            "K8S_NAMESPACE=${config.k8sNamespace}",
+                            "K8S_DEPLOYMENT=${config.k8sDeploymentName}",
+                            "EXPECTED_IMAGE=${deployService.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                        ]) {
+                            sh 'sh syncArgo.sh'
                         }
                     }
                 }
