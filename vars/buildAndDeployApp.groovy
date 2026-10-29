@@ -246,7 +246,8 @@ def call(Map config) {
                                     else
                                         git fetch origin ${config.k8sConfigsBranch}
                                         git checkout ${config.k8sConfigsBranch}
-                                        git pull origin ${config.k8sConfigsBranch}
+                                        git reset --hard origin/${config.k8sConfigsBranch}
+                                        git clean -fd
                                     fi
                                     git config user.email '${config.jenkinsUserEmail}'
                                     git config user.name '${config.jenkinsUserName}'
@@ -363,8 +364,37 @@ ${availableKustomizations ?: '(없음)'}"""
                             def hasStagedChanges = sh(returnStatus: true, script: 'git diff --cached --quiet') != 0
                             if (hasStagedChanges) {
                                 sh "git commit -m \"Change: update image tags to ${env.DOCKER_IMAGE_TAG} (${env.JOB_NAME}#${env.BUILD_NUMBER})\""
+                                // kubernetes-configs keeps every app on one branch, so another
+                                // job's push can land between the clone above and this one and the
+                                // push comes back "fetch first". Giving up there fails a build whose
+                                // image is already in the registry but which no manifest points at,
+                                // so replay our commit on the new tip and try again. The other job
+                                // edits a different app's files, which replays cleanly; a real
+                                // conflict means two builds of the same app are racing, and the one
+                                // that lost must not quietly put its older tag back.
                                 sshagent([config.credentialId]) {
-                                    sh "export GIT_SSH_COMMAND='ssh -v -o StrictHostKeyChecking=no' && git push origin ${config.k8sConfigsBranch}"
+                                    sh """
+                                        export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no'
+                                        attempt=1
+                                        while :; do
+                                            if git push origin HEAD:${config.k8sConfigsBranch}; then
+                                                break
+                                            fi
+                                            if [ "\$attempt" -ge 5 ]; then
+                                                echo "push to ${config.k8sConfigsBranch} still rejected after \$attempt attempts" >&2
+                                                exit 1
+                                            fi
+                                            echo "push rejected; replaying onto the current ${config.k8sConfigsBranch} tip (attempt \$attempt)"
+                                            git fetch origin ${config.k8sConfigsBranch}
+                                            if ! git rebase origin/${config.k8sConfigsBranch}; then
+                                                git rebase --abort || true
+                                                echo "rebase conflicted: another build changed the same manifest, refusing to overwrite it" >&2
+                                                exit 1
+                                            fi
+                                            sleep \$(( attempt * 3 ))
+                                            attempt=\$(( attempt + 1 ))
+                                        done
+                                    """
                                 }
                             } else {
                                 echo "커밋할 변경사항이 없어 git push를 생략합니다."
