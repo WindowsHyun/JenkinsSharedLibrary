@@ -201,8 +201,21 @@ def call(Map config) {
                                                 withEnv(["HARBOR_HOST=${harborRegistryHost}"]) {
                                                 sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$HARBOR_HOST"'
                                                 }
-                                                sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
-                                                sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                                withEnv([
+                                                    "DOCKER_IMAGE_REF=${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}",
+                                                    "DOCKERFILE_PATH=${svc.dockerfilePath}",
+                                                    "DOCKER_BUILD_CONTEXT=${svc.buildContext}"
+                                                ]) {
+                                                    sh 'docker build --network=host -t "$DOCKER_IMAGE_REF" -f "$DOCKERFILE_PATH" "$DOCKER_BUILD_CONTEXT"'
+                                                    sh 'docker push "$DOCKER_IMAGE_REF"'
+                                                    sh '''
+                                                        if docker image rm "$DOCKER_IMAGE_REF"; then
+                                                            echo "Removed pushed local image: $DOCKER_IMAGE_REF"
+                                                        else
+                                                            echo "WARNING: Harbor push succeeded, but local image cleanup failed: $DOCKER_IMAGE_REF" >&2
+                                                        fi
+                                                    '''
+                                                }
                                             }
                                         } else {
                                             withCredentials([
@@ -212,8 +225,21 @@ def call(Map config) {
                                                 withEnv(["HARBOR_HOST=${harborRegistryHost}"]) {
                                                 sh 'docker login -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" "$HARBOR_HOST"'
                                                 }
-                                                sh "docker build --network=host -t ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG} -f ${svc.dockerfilePath} ${svc.buildContext}"
-                                                sh "docker push ${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}"
+                                                withEnv([
+                                                    "DOCKER_IMAGE_REF=${svc.imageRepo}:${env.DOCKER_IMAGE_TAG}",
+                                                    "DOCKERFILE_PATH=${svc.dockerfilePath}",
+                                                    "DOCKER_BUILD_CONTEXT=${svc.buildContext}"
+                                                ]) {
+                                                    sh 'docker build --network=host -t "$DOCKER_IMAGE_REF" -f "$DOCKERFILE_PATH" "$DOCKER_BUILD_CONTEXT"'
+                                                    sh 'docker push "$DOCKER_IMAGE_REF"'
+                                                    sh '''
+                                                        if docker image rm "$DOCKER_IMAGE_REF"; then
+                                                            echo "Removed pushed local image: $DOCKER_IMAGE_REF"
+                                                        else
+                                                            echo "WARNING: Harbor push succeeded, but local image cleanup failed: $DOCKER_IMAGE_REF" >&2
+                                                        fi
+                                                    '''
+                                                }
                                             }
                                         }
                                     }
